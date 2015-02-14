@@ -2,14 +2,10 @@
 
 namespace Model;
 
-use Core\Translator;
-use Core\Template;
-use Event\TaskNotificationListener;
-use Event\CommentNotificationListener;
-use Event\FileNotificationListener;
-use Event\SubTaskNotificationListener;
+use Core\Session;
 use Swift_Message;
 use Swift_Mailer;
+use Swift_TransportException;
 
 /**
  * Notification model
@@ -27,19 +23,53 @@ class Notification extends Base
     const TABLE = 'user_has_notifications';
 
     /**
+     * Get a list of people with notifications enabled
+     *
+     * @access public
+     * @param  integer   $project_id      Project id
+     * @param  array     $exclude_users   List of user_id to exclude
+     * @return array
+     */
+    public function getUsersWithNotification($project_id, array $exclude_users = array())
+    {
+        if ($this->projectPermission->isEverybodyAllowed($project_id)) {
+
+            return $this->db
+                        ->table(User::TABLE)
+                        ->columns(User::TABLE.'.id', User::TABLE.'.username', User::TABLE.'.name', User::TABLE.'.email')
+                        ->eq('notifications_enabled', '1')
+                        ->neq('email', '')
+                        ->notin(User::TABLE.'.id', $exclude_users)
+                        ->findAll();
+        }
+
+        return $this->db
+            ->table(ProjectPermission::TABLE)
+            ->columns(User::TABLE.'.id', User::TABLE.'.username', User::TABLE.'.name', User::TABLE.'.email')
+            ->join(User::TABLE, 'id', 'user_id')
+            ->eq('project_id', $project_id)
+            ->eq('notifications_enabled', '1')
+            ->neq('email', '')
+            ->notin(User::TABLE.'.id', $exclude_users)
+            ->findAll();
+    }
+
+    /**
      * Get the list of users to send the notification for a given project
      *
      * @access public
-     * @param  integer   $project_id   Project id
+     * @param  integer   $project_id      Project id
+     * @param  array     $exclude_users   List of user_id to exclude
      * @return array
      */
-    public function getUsersList($project_id)
+    public function getUsersList($project_id, array $exclude_users = array())
     {
-        $users = $this->db->table(User::TABLE)
-                          ->columns('id', 'username', 'name', 'email')
-                          ->eq('notifications_enabled', '1')
-                          ->neq('email', '')
-                          ->findAll();
+        // Exclude the connected user
+        if (Session::isOpen()) {
+            $exclude_users[] = $this->userSession->getId();
+        }
+
+        $users = $this->getUsersWithNotification($project_id, $exclude_users);
 
         foreach ($users as $index => $user) {
 
@@ -61,30 +91,6 @@ class Notification extends Base
     }
 
     /**
-     * Attach events
-     *
-     * @access public
-     */
-    public function attachEvents()
-    {
-        $this->event->attach(File::EVENT_CREATE, new FileNotificationListener($this, 'notification_file_creation'));
-
-        $this->event->attach(Comment::EVENT_CREATE, new CommentNotificationListener($this, 'notification_comment_creation'));
-        $this->event->attach(Comment::EVENT_UPDATE, new CommentNotificationListener($this, 'notification_comment_update'));
-
-        $this->event->attach(SubTask::EVENT_CREATE, new SubTaskNotificationListener($this, 'notification_subtask_creation'));
-        $this->event->attach(SubTask::EVENT_UPDATE, new SubTaskNotificationListener($this, 'notification_subtask_update'));
-
-        $this->event->attach(Task::EVENT_CREATE, new TaskNotificationListener($this, 'notification_task_creation'));
-        $this->event->attach(Task::EVENT_UPDATE, new TaskNotificationListener($this, 'notification_task_update'));
-        $this->event->attach(Task::EVENT_CLOSE, new TaskNotificationListener($this, 'notification_task_close'));
-        $this->event->attach(Task::EVENT_OPEN, new TaskNotificationListener($this, 'notification_task_open'));
-        $this->event->attach(Task::EVENT_MOVE_COLUMN, new TaskNotificationListener($this, 'notification_task_move_column'));
-        $this->event->attach(Task::EVENT_MOVE_POSITION, new TaskNotificationListener($this, 'notification_task_move_position'));
-        $this->event->attach(Task::EVENT_ASSIGNEE_CHANGE, new TaskNotificationListener($this, 'notification_task_assignee_change'));
-    }
-
-    /**
      * Send the email notifications
      *
      * @access public
@@ -94,17 +100,21 @@ class Notification extends Base
      */
     public function sendEmails($template, array $users, array $data)
     {
-        $transport = $this->registry->shared('mailer');
-        $mailer = Swift_Mailer::newInstance($transport);
+        try {
+            $mailer = Swift_Mailer::newInstance($this->container['mailer']);
 
-        $message = Swift_Message::newInstance()
-                        ->setSubject($this->getMailSubject($template, $data))
-                        ->setFrom(array(MAIL_FROM => 'Kanboard'))
-                        ->setBody($this->getMailContent($template, $data), 'text/html');
+            $message = Swift_Message::newInstance()
+                            ->setSubject($this->getMailSubject($template, $data))
+                            ->setFrom(array(MAIL_FROM => 'Kanboard'))
+                            ->setBody($this->getMailContent($template, $data), 'text/html');
 
-        foreach ($users as $user) {
-            $message->setTo(array($user['email'] => $user['name'] ?: $user['username']));
-            $mailer->send($message);
+            foreach ($users as $user) {
+                $message->setTo(array($user['email'] => $user['name'] ?: $user['username']));
+                $mailer->send($message);
+            }
+        }
+        catch (Swift_TransportException $e) {
+            $this->container['logger']->error($e->getMessage());
         }
     }
 
@@ -118,43 +128,43 @@ class Notification extends Base
     public function getMailSubject($template, array $data)
     {
         switch ($template) {
-            case 'notification_file_creation':
+            case 'file_creation':
                 $subject = e('[%s][New attachment] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_comment_creation':
+            case 'comment_creation':
                 $subject = e('[%s][New comment] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_comment_update':
+            case 'comment_update':
                 $subject = e('[%s][Comment updated] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_subtask_creation':
+            case 'subtask_creation':
                 $subject = e('[%s][New subtask] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_subtask_update':
+            case 'subtask_update':
                 $subject = e('[%s][Subtask updated] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_task_creation':
+            case 'task_creation':
                 $subject = e('[%s][New task] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_task_update':
+            case 'task_update':
                 $subject = e('[%s][Task updated] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_task_close':
+            case 'task_close':
                 $subject = e('[%s][Task closed] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_task_open':
+            case 'task_open':
                 $subject = e('[%s][Task opened] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_task_move_column':
+            case 'task_move_column':
                 $subject = e('[%s][Column Change] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_task_move_position':
+            case 'task_move_position':
                 $subject = e('[%s][Position Change] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_task_assignee_change':
+            case 'task_assignee_change':
                 $subject = e('[%s][Assignee Change] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
-            case 'notification_task_due':
+            case 'task_due':
                 $subject = e('[%s][Due tasks]', $data['project']);
                 break;
             default:
@@ -173,8 +183,10 @@ class Notification extends Base
      */
     public function getMailContent($template, array $data)
     {
-        $tpl = new Template;
-        return $tpl->load($template, $data);
+        return $this->template->render(
+            'notification/'.$template,
+            $data + array('application_url' => $this->config->get('application_url'))
+        );
     }
 
     /**

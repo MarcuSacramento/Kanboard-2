@@ -18,7 +18,7 @@ class User extends Base
     public function logout()
     {
         $this->checkCSRFParam();
-        $this->authentication->backend('rememberMe')->destroy($this->acl->getUserId());
+        $this->authentication->backend('rememberMe')->destroy($this->userSession->getId());
         $this->session->close();
         $this->response->redirect('?controller=user&action=login');
     }
@@ -28,16 +28,17 @@ class User extends Base
      *
      * @access public
      */
-    public function login()
+    public function login(array $values = array(), array $errors = array())
     {
-        if ($this->acl->isLogged()) {
+        if ($this->userSession->isLogged()) {
             $this->response->redirect('?controller=app');
         }
 
-        $this->response->html($this->template->layout('user_login', array(
-            'errors' => array(),
-            'values' => array(),
+        $this->response->html($this->template->layout('user/login', array(
+            'errors' => $errors,
+            'values' => $values,
             'no_layout' => true,
+            'redirect_query' => $this->request->getStringParam('redirect_query'),
             'title' => t('Login')
         )));
     }
@@ -49,23 +50,24 @@ class User extends Base
      */
     public function check()
     {
+        $redirect_query = $this->request->getStringParam('redirect_query');
         $values = $this->request->getValues();
         list($valid, $errors) = $this->authentication->validateForm($values);
 
         if ($valid) {
-            $this->response->redirect('?controller=board');
+            if ($redirect_query !== '') {
+                $this->response->redirect('?'.$redirect_query);
+            }
+            else {
+                $this->response->redirect('?controller=app');
+            }
         }
 
-        $this->response->html($this->template->layout('user_login', array(
-            'errors' => $errors,
-            'values' => $values,
-            'no_layout' => true,
-            'title' => t('Login')
-        )));
+        $this->login($values, $errors);
     }
 
     /**
-     * Common layout for project views
+     * Common layout for user views
      *
      * @access private
      * @param  string    $template   Template name
@@ -74,15 +76,15 @@ class User extends Base
      */
     private function layout($template, array $params)
     {
-        $content = $this->template->load($template, $params);
+        $content = $this->template->render($template, $params);
         $params['user_content_for_layout'] = $content;
-        $params['menu'] = 'users';
+        $params['board_selector'] = $this->projectPermission->getAllowedProjects($this->userSession->getId());
 
         if (isset($params['user'])) {
-            $params['title'] = $params['user']['name'] ?: $params['user']['username'];
+            $params['title'] = ($params['user']['name'] ?: $params['user']['username']).' (#'.$params['user']['id'].')';
         }
 
-        return $this->template->layout('user_layout', $params);
+        return $this->template->layout('user/layout', $params);
     }
 
     /**
@@ -99,7 +101,7 @@ class User extends Base
             $this->notfound();
         }
 
-        if ($this->acl->isRegularUser() && $this->acl->getUserId() != $user['id']) {
+        if (! $this->userSession->isAdmin() && $this->userSession->getId() != $user['id']) {
             $this->forbidden();
         }
 
@@ -113,16 +115,31 @@ class User extends Base
      */
     public function index()
     {
-        $users = $this->user->getAll();
-        $nb_users = count($users);
+        $direction = $this->request->getStringParam('direction', 'ASC');
+        $order = $this->request->getStringParam('order', 'username');
+        $offset = $this->request->getIntegerParam('offset', 0);
+        $limit = 25;
+
+        $users = $this->user->paginate($offset, $limit, $order, $direction);
+        $nb_users = $this->user->count();
 
         $this->response->html(
-            $this->template->layout('user_index', array(
+            $this->template->layout('user/index', array(
+                'board_selector' => $this->projectPermission->getAllowedProjects($this->userSession->getId()),
                 'projects' => $this->project->getList(),
-                'users' => $users,
                 'nb_users' => $nb_users,
-                'menu' => 'users',
-                'title' => t('Users').' ('.$nb_users.')'
+                'users' => $users,
+                'title' => t('Users').' ('.$nb_users.')',
+                'pagination' => array(
+                    'controller' => 'user',
+                    'action' => 'index',
+                    'direction' => $direction,
+                    'order' => $order,
+                    'total' => $nb_users,
+                    'offset' => $offset,
+                    'limit' => $limit,
+                    'params' => array(),
+                ),
         )));
     }
 
@@ -131,13 +148,15 @@ class User extends Base
      *
      * @access public
      */
-    public function create()
+    public function create(array $values = array(), array $errors = array())
     {
-        $this->response->html($this->template->layout('user_new', array(
+        $this->response->html($this->template->layout('user/new', array(
+            'timezones' => $this->config->getTimezones(true),
+            'languages' => $this->config->getLanguages(true),
+            'board_selector' => $this->projectPermission->getAllowedProjects($this->userSession->getId()),
             'projects' => $this->project->getList(),
-            'errors' => array(),
-            'values' => array(),
-            'menu' => 'users',
+            'errors' => $errors,
+            'values' => $values,
             'title' => t('New user')
         )));
     }
@@ -163,13 +182,7 @@ class User extends Base
             }
         }
 
-        $this->response->html($this->template->layout('user_new', array(
-            'projects' => $this->project->getList(),
-            'errors' => $errors,
-            'values' => $values,
-            'menu' => 'users',
-            'title' => t('New user')
-        )));
+        $this->create($values, $errors);
     }
 
     /**
@@ -180,9 +193,11 @@ class User extends Base
     public function show()
     {
         $user = $this->getUser();
-        $this->response->html($this->layout('user_show', array(
-            'projects' => $this->project->getAvailableList($user['id']),
+        $this->response->html($this->layout('user/show', array(
+            'projects' => $this->projectPermission->getAllowedProjects($user['id']),
             'user' => $user,
+            'timezones' => $this->config->getTimezones(true),
+            'languages' => $this->config->getLanguages(true),
         )));
     }
 
@@ -194,7 +209,7 @@ class User extends Base
     public function last()
     {
         $user = $this->getUser();
-        $this->response->html($this->layout('user_last', array(
+        $this->response->html($this->layout('user/last', array(
             'last_logins' => $this->lastLogin->getAll($user['id']),
             'user' => $user,
         )));
@@ -208,7 +223,7 @@ class User extends Base
     public function sessions()
     {
         $user = $this->getUser();
-        $this->response->html($this->layout('user_sessions', array(
+        $this->response->html($this->layout('user/sessions', array(
             'sessions' => $this->authentication->backend('rememberMe')->getAll($user['id']),
             'user' => $user,
         )));
@@ -243,8 +258,8 @@ class User extends Base
             $this->response->redirect('?controller=user&action=notifications&user_id='.$user['id']);
         }
 
-        $this->response->html($this->layout('user_notifications', array(
-            'projects' => $this->project->getAvailableList($user['id']),
+        $this->response->html($this->layout('user/notifications', array(
+            'projects' => $this->projectPermission->getAllowedProjects($user['id']),
             'notifications' => $this->notification->readSettings($user['id']),
             'user' => $user,
         )));
@@ -258,7 +273,7 @@ class User extends Base
     public function external()
     {
         $user = $this->getUser();
-        $this->response->html($this->layout('user_external', array(
+        $this->response->html($this->layout('user/external', array(
             'last_logins' => $this->lastLogin->getAll($user['id']),
             'user' => $user,
         )));
@@ -293,7 +308,7 @@ class User extends Base
             }
         }
 
-        $this->response->html($this->layout('user_password', array(
+        $this->response->html($this->layout('user/password', array(
             'values' => $values,
             'errors' => $errors,
             'user' => $user,
@@ -317,7 +332,7 @@ class User extends Base
 
             $values = $this->request->getValues();
 
-            if ($this->acl->isAdminUser()) {
+            if ($this->userSession->isAdmin()) {
                 $values += array('is_admin' => 0);
             }
             else {
@@ -342,11 +357,13 @@ class User extends Base
             }
         }
 
-        $this->response->html($this->layout('user_edit', array(
+        $this->response->html($this->layout('user/edit', array(
             'values' => $values,
             'errors' => $errors,
-            'projects' => $this->project->filterListByAccess($this->project->getList(), $user['id']),
+            'projects' => $this->projectPermission->filterProjects($this->project->getList(), $user['id']),
             'user' => $user,
+            'timezones' => $this->config->getTimezones(true),
+            'languages' => $this->config->getLanguages(true),
         )));
     }
 
@@ -372,7 +389,7 @@ class User extends Base
             $this->response->redirect('?controller=user');
         }
 
-        $this->response->html($this->layout('user_remove', array(
+        $this->response->html($this->layout('user/remove', array(
             'user' => $user,
         )));
     }
@@ -393,25 +410,26 @@ class User extends Base
             if (is_array($profile)) {
 
                 // If the user is already logged, link the account otherwise authenticate
-                if ($this->acl->isLogged()) {
+                if ($this->userSession->isLogged()) {
 
-                    if ($this->authentication->backend('google')->updateUser($this->acl->getUserId(), $profile)) {
+                    if ($this->authentication->backend('google')->updateUser($this->userSession->getId(), $profile)) {
                         $this->session->flash(t('Your Google Account is linked to your profile successfully.'));
                     }
                     else {
                         $this->session->flashError(t('Unable to link your Google Account.'));
                     }
 
-                    $this->response->redirect('?controller=user&action=external&user_id='.$this->acl->getUserId());
+                    $this->response->redirect('?controller=user&action=external&user_id='.$this->userSession->getId());
                 }
                 else if ($this->authentication->backend('google')->authenticate($profile['id'])) {
                     $this->response->redirect('?controller=app');
                 }
                 else {
-                    $this->response->html($this->template->layout('user_login', array(
+                    $this->response->html($this->template->layout('user/login', array(
                         'errors' => array('login' => t('Google authentication failed')),
                         'values' => array(),
                         'no_layout' => true,
+                        'redirect_query' => '',
                         'title' => t('Login')
                     )));
                 }
@@ -429,14 +447,14 @@ class User extends Base
     public function unlinkGoogle()
     {
         $this->checkCSRFParam();
-        if ($this->authentication->backend('google')->unlink($this->acl->getUserId())) {
+        if ($this->authentication->backend('google')->unlink($this->userSession->getId())) {
             $this->session->flash(t('Your Google Account is not linked anymore to your profile.'));
         }
         else {
             $this->session->flashError(t('Unable to unlink your Google Account.'));
         }
 
-        $this->response->redirect('?controller=user&action=external&user_id='.$this->acl->getUserId());
+        $this->response->redirect('?controller=user&action=external&user_id='.$this->userSession->getId());
     }
 
     /**
@@ -454,25 +472,26 @@ class User extends Base
             if (is_array($profile)) {
 
                 // If the user is already logged, link the account otherwise authenticate
-                if ($this->acl->isLogged()) {
+                if ($this->userSession->isLogged()) {
 
-                    if ($this->authentication->backend('gitHub')->updateUser($this->acl->getUserId(), $profile)) {
+                    if ($this->authentication->backend('gitHub')->updateUser($this->userSession->getId(), $profile)) {
                         $this->session->flash(t('Your GitHub account was successfully linked to your profile.'));
                     }
                     else {
                         $this->session->flashError(t('Unable to link your GitHub Account.'));
                     }
 
-                    $this->response->redirect('?controller=user&action=external&user_id='.$this->acl->getUserId());
+                    $this->response->redirect('?controller=user&action=external&user_id='.$this->userSession->getId());
                 }
                 else if ($this->authentication->backend('gitHub')->authenticate($profile['id'])) {
                     $this->response->redirect('?controller=app');
                 }
                 else {
-                    $this->response->html($this->template->layout('user_login', array(
+                    $this->response->html($this->template->layout('user/login', array(
                         'errors' => array('login' => t('GitHub authentication failed')),
                         'values' => array(),
                         'no_layout' => true,
+                        'redirect_query' => '',
                         'title' => t('Login')
                     )));
                 }
@@ -493,13 +512,13 @@ class User extends Base
 
         $this->authentication->backend('gitHub')->revokeGitHubAccess();
 
-        if ($this->authentication->backend('gitHub')->unlink($this->acl->getUserId())) {
+        if ($this->authentication->backend('gitHub')->unlink($this->userSession->getId())) {
             $this->session->flash(t('Your GitHub account is no longer linked to your profile.'));
         }
         else {
             $this->session->flashError(t('Unable to unlink your GitHub Account.'));
         }
 
-        $this->response->redirect('?controller=user&action=external&user_id='.$this->acl->getUserId());
+        $this->response->redirect('?controller=user&action=external&user_id='.$this->userSession->getId());
     }
 }

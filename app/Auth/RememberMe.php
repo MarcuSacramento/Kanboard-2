@@ -2,8 +2,9 @@
 
 namespace Auth;
 
+use Core\Request;
+use Event\AuthEvent;
 use Core\Security;
-use Core\Tool;
 
 /**
  * RememberMe model
@@ -95,20 +96,16 @@ class RememberMe extends Base
                 // Update the sequence
                 $this->writeCookie(
                     $record['token'],
-                    $this->update($record['token'], $record['sequence']),
+                    $this->update($record['token']),
                     $record['expiration']
                 );
 
                 // Create the session
-                $this->user->updateSession($this->user->getById($record['user_id']));
-                $this->acl->isRememberMe(true);
+                $this->userSession->refresh($this->user->getById($record['user_id']));
 
-                // Update last login infos
-                $this->lastLogin->create(
-                    self::AUTH_NAME,
-                    $this->acl->getUserId(),
-                    $this->user->getIpAddress(),
-                    $this->user->getUserAgent()
+                $this->container['dispatcher']->dispatch(
+                    'auth.success',
+                    new AuthEvent(self::AUTH_NAME, $this->userSession->getId())
                 );
 
                 return true;
@@ -136,7 +133,7 @@ class RememberMe extends Base
                 // Update the sequence
                 $this->writeCookie(
                     $record['token'],
-                    $this->update($record['token'], $record['sequence']),
+                    $this->update($record['token']),
                     $record['expiration']
                 );
             }
@@ -237,17 +234,15 @@ class RememberMe extends Base
      *
      * @access public
      * @param  string   $token        Session token
-     * @param  string   $sequence     Sequence token
      * @return string
      */
-    public function update($token, $sequence)
+    public function update($token)
     {
         $new_sequence = Security::generateToken();
 
         $this->db
              ->table(self::TABLE)
              ->eq('token', $token)
-             ->eq('sequence', $sequence)
              ->update(array('sequence' => $new_sequence));
 
         return $new_sequence;
@@ -310,7 +305,7 @@ class RememberMe extends Base
             $expiration,
             BASE_URL_DIRECTORY,
             null,
-            Tool::isHTTPS(),
+            Request::isHTTPS(),
             true
         );
     }
@@ -343,7 +338,7 @@ class RememberMe extends Base
             time() - 3600,
             BASE_URL_DIRECTORY,
             null,
-            Tool::isHTTPS(),
+            Request::isHTTPS(),
             true
         );
     }

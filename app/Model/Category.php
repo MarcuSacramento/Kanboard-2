@@ -46,6 +46,34 @@ class Category extends Base
     }
 
     /**
+     * Get the category name by the id
+     *
+     * @access public
+     * @param  integer   $category_id    Category id
+     * @return string
+     */
+    public function getNameById($category_id)
+    {
+        return $this->db->table(self::TABLE)->eq('id', $category_id)->findOneColumn('name') ?: '';
+    }
+
+    /**
+     * Get a category id by the project and the name
+     *
+     * @access public
+     * @param  integer   $project_id      Project id
+     * @param  string    $category_name   Category name
+     * @return integer
+     */
+    public function getIdByName($project_id, $category_name)
+    {
+        return (int) $this->db->table(self::TABLE)
+                        ->eq('project_id', $project_id)
+                        ->eq('name', $category_name)
+                        ->findOneColumn('id');
+    }
+
+    /**
      * Return the list of all categories
      *
      * @access public
@@ -90,15 +118,38 @@ class Category extends Base
     }
 
     /**
-     * Create a category
+     * Create default cetegories during project creation (transaction already started in Project::create())
+     *
+     * @access public
+     * @param  integer  $project_id
+     */
+    public function createDefaultCategories($project_id)
+    {
+        $categories = explode(',', $this->config->get('project_categories'));
+
+        foreach ($categories as $category) {
+
+            $category = trim($category);
+
+            if (! empty($category)) {
+                $this->db->table(self::TABLE)->insert(array(
+                    'project_id' => $project_id,
+                    'name' => $category,
+                ));
+            }
+        }
+    }
+
+    /**
+     * Create a category (run inside a transaction)
      *
      * @access public
      * @param  array    $values    Form values
-     * @return bool
+     * @return bool|integer
      */
     public function create(array $values)
     {
-        return $this->db->table(self::TABLE)->save($values);
+        return $this->persist(self::TABLE, $values);
     }
 
     /**
@@ -137,26 +188,26 @@ class Category extends Base
     }
 
     /**
-     * Duplicate categories from a project to another one
+     * Duplicate categories from a project to another one, must be executed inside a transaction
      *
      * @author Antonio Rabelo
-     * @param  integer    $project_from      Project Template
-     * @return integer    $project_to        Project that receives the copy
+     * @param  integer    $src_project_id        Source project id
+     * @return integer    $dst_project_id        Destination project id
      * @return boolean
      */
-    public function duplicate($project_from, $project_to)
+    public function duplicate($src_project_id, $dst_project_id)
     {
         $categories = $this->db->table(self::TABLE)
                                ->columns('name')
-                               ->eq('project_id', $project_from)
+                               ->eq('project_id', $src_project_id)
                                ->asc('name')
                                ->findAll();
 
         foreach ($categories as $category) {
 
-            $category['project_id'] = $project_to;
+            $category['project_id'] = $dst_project_id;
 
-            if (! $this->category->create($category)) {
+            if (! $this->db->table(self::TABLE)->save($category)) {
                 return false;
             }
         }

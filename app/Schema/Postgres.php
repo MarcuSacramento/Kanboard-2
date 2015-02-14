@@ -2,9 +2,179 @@
 
 namespace Schema;
 
+use PDO;
 use Core\Security;
 
-const VERSION = 8;
+const VERSION = 22;
+
+function version_22($pdo)
+{
+    $pdo->exec('ALTER TABLE users ADD COLUMN timezone VARCHAR(50)');
+    $pdo->exec('ALTER TABLE users ADD COLUMN language CHAR(5)');
+}
+
+function version_21($pdo)
+{
+    // Avoid some full table scans
+    $pdo->exec('CREATE INDEX users_admin_idx ON users(is_admin)');
+    $pdo->exec('CREATE INDEX columns_project_idx ON columns(project_id)');
+    $pdo->exec('CREATE INDEX tasks_project_idx ON tasks(project_id)');
+    $pdo->exec('CREATE INDEX swimlanes_project_idx ON swimlanes(project_id)');
+    $pdo->exec('CREATE INDEX categories_project_idx ON project_has_categories(project_id)');
+    $pdo->exec('CREATE INDEX subtasks_task_idx ON task_has_subtasks(task_id)');
+    $pdo->exec('CREATE INDEX files_task_idx ON task_has_files(task_id)');
+    $pdo->exec('CREATE INDEX comments_task_idx ON comments(task_id)');
+
+    // Set the ownership for all private projects
+    $rq = $pdo->prepare("SELECT id FROM projects WHERE is_private='1'");
+    $rq->execute();
+    $project_ids = $rq->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    $rq = $pdo->prepare('UPDATE project_has_users SET is_owner=1 WHERE project_id=?');
+
+    foreach ($project_ids as $project_id) {
+        $rq->execute(array($project_id));
+    }
+}
+
+function version_20($pdo)
+{
+    $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
+    $rq->execute(array('project_categories', ''));
+}
+
+function version_19($pdo)
+{
+    $pdo->exec("
+        CREATE TABLE swimlanes (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(200) NOT NULL,
+            position INTEGER DEFAULT 1,
+            is_active BOOLEAN DEFAULT '1',
+            project_id INTEGER,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            UNIQUE (name, project_id)
+        )
+    ");
+
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN swimlane_id INTEGER DEFAULT 0');
+    $pdo->exec("ALTER TABLE projects ADD COLUMN default_swimlane VARCHAR(200) DEFAULT '".t('Default swimlane')."'");
+    $pdo->exec("ALTER TABLE projects ADD COLUMN show_default_swimlane BOOLEAN DEFAULT '1'");
+}
+
+function version_18($pdo)
+{
+    $pdo->exec("ALTER TABLE project_has_users ADD COLUMN is_owner BOOLEAN DEFAULT '0'");
+}
+
+function version_17($pdo)
+{
+    $pdo->exec('ALTER TABLE tasks ALTER COLUMN title SET NOT NULL');
+}
+
+function version_16($pdo)
+{
+    $pdo->exec("
+        CREATE TABLE project_daily_summaries (
+            id SERIAL PRIMARY KEY,
+            day CHAR(10) NOT NULL,
+            project_id INTEGER NOT NULL,
+            column_id INTEGER NOT NULL,
+            total INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(column_id) REFERENCES columns(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    ");
+
+    $pdo->exec('CREATE UNIQUE INDEX project_daily_column_stats_idx ON project_daily_summaries(day, project_id, column_id)');
+}
+
+function version_15($pdo)
+{
+    $pdo->exec("ALTER TABLE projects ADD COLUMN is_everybody_allowed BOOLEAN DEFAULT '0'");
+}
+
+function version_14($pdo)
+{
+    $pdo->exec("
+        CREATE TABLE project_activities (
+            id SERIAL PRIMARY KEY,
+            date_creation INTEGER NOT NULL,
+            event_name VARCHAR(50) NOT NULL,
+            creator_id INTEGER,
+            project_id INTEGER,
+            task_id INTEGER,
+            data TEXT,
+            FOREIGN KEY(creator_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+    ");
+
+    $pdo->exec('DROP TABLE task_has_events');
+    $pdo->exec('DROP TABLE comment_has_events');
+    $pdo->exec('DROP TABLE subtask_has_events');
+}
+
+function version_13($pdo)
+{
+    $pdo->exec("ALTER TABLE tasks ADD COLUMN date_started INTEGER");
+    $pdo->exec("ALTER TABLE tasks ADD COLUMN time_spent FLOAT DEFAULT 0");
+    $pdo->exec("ALTER TABLE tasks ADD COLUMN time_estimated FLOAT DEFAULT 0");
+
+    $pdo->exec("ALTER TABLE task_has_subtasks ALTER COLUMN time_estimated TYPE FLOAT");
+    $pdo->exec("ALTER TABLE task_has_subtasks ALTER COLUMN time_spent TYPE FLOAT");
+}
+
+function version_12($pdo)
+{
+    $pdo->exec("ALTER TABLE projects ADD COLUMN is_private BOOLEAN DEFAULT '0'");
+}
+
+function version_11($pdo)
+{
+    $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
+    $rq->execute(array('application_date_format', 'm/d/Y'));
+}
+
+function version_10($pdo)
+{
+    $pdo->exec("
+        CREATE TABLE settings (
+            option VARCHAR(100) PRIMARY KEY,
+            value VARCHAR(255) DEFAULT ''
+        )
+    ");
+
+    // Migrate old config parameters
+    $rq = $pdo->prepare('SELECT * FROM config');
+    $rq->execute();
+    $parameters = $rq->fetch(PDO::FETCH_ASSOC);
+
+    $rq = $pdo->prepare('INSERT INTO settings VALUES (?, ?)');
+    $rq->execute(array('board_highlight_period', defined('RECENT_TASK_PERIOD') ? RECENT_TASK_PERIOD : 48*60*60));
+    $rq->execute(array('board_public_refresh_interval', defined('BOARD_PUBLIC_CHECK_INTERVAL') ? BOARD_PUBLIC_CHECK_INTERVAL : 60));
+    $rq->execute(array('board_private_refresh_interval', defined('BOARD_CHECK_INTERVAL') ? BOARD_CHECK_INTERVAL : 10));
+    $rq->execute(array('board_columns', $parameters['default_columns']));
+    $rq->execute(array('webhook_url_task_creation', $parameters['webhooks_url_task_creation']));
+    $rq->execute(array('webhook_url_task_modification', $parameters['webhooks_url_task_modification']));
+    $rq->execute(array('webhook_token', $parameters['webhooks_token']));
+    $rq->execute(array('api_token', $parameters['api_token']));
+    $rq->execute(array('application_language', $parameters['language']));
+    $rq->execute(array('application_timezone', $parameters['timezone']));
+    $rq->execute(array('application_url', defined('KANBOARD_URL') ? KANBOARD_URL : ''));
+
+    $pdo->exec('DROP TABLE config');
+}
+
+function version_9($pdo)
+{
+    $pdo->exec("ALTER TABLE tasks ADD COLUMN reference VARCHAR(50) DEFAULT ''");
+    $pdo->exec("ALTER TABLE comments ADD COLUMN reference VARCHAR(50) DEFAULT ''");
+
+    $pdo->exec('CREATE INDEX tasks_reference_idx ON tasks(reference)');
+    $pdo->exec('CREATE INDEX comments_reference_idx ON comments(reference)');
+}
 
 function version_8($pdo)
 {
@@ -22,7 +192,7 @@ function version_6($pdo)
         CREATE TABLE task_has_events (
             id SERIAL PRIMARY KEY,
             date_creation INTEGER NOT NULL,
-            event_name TEXT NOT NULL,
+            event_name VARCHAR(50) NOT NULL,
             creator_id INTEGER,
             project_id INTEGER,
             task_id INTEGER,
@@ -37,7 +207,7 @@ function version_6($pdo)
         CREATE TABLE subtask_has_events (
             id SERIAL PRIMARY KEY,
             date_creation INTEGER NOT NULL,
-            event_name TEXT NOT NULL,
+            event_name VARCHAR(50) NOT NULL,
             creator_id INTEGER,
             project_id INTEGER,
             subtask_id INTEGER,
@@ -54,7 +224,7 @@ function version_6($pdo)
         CREATE TABLE comment_has_events (
             id SERIAL PRIMARY KEY,
             date_creation INTEGER NOT NULL,
-            event_name TEXT NOT NULL,
+            event_name VARCHAR(50) NOT NULL,
             creator_id INTEGER,
             project_id INTEGER,
             comment_id INTEGER,

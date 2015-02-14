@@ -1,10 +1,10 @@
 <?php
 
-// Your Kanboard base URL, example: http://demo.kanboard.net/ (used by email notifications or CLI scripts)
-define('KANBOARD_URL', '');
+// Enable/Disable debug
+define('DEBUG', false);
 
 // E-mail address for the "From" header (notifications)
-define('MAIL_FROM', 'notifications@kanboard.net');
+define('MAIL_FROM', 'notifications@kanboard.local');
 
 // Mail transport to use: "smtp", "sendmail" or "mail" (PHP mail function)
 define('MAIL_TRANSPORT', 'mail');
@@ -18,15 +18,6 @@ define('MAIL_SMTP_ENCRYPTION', null); // Valid values are "null", "ssl" or "tls"
 
 // Sendmail command to use when the transport is "sendmail"
 define('MAIL_SENDMAIL_COMMAND', '/usr/sbin/sendmail -bs');
-
-// Auto-refresh frequency in seconds for the public board view (60 seconds by default)
-define('BOARD_PUBLIC_CHECK_INTERVAL', 60);
-
-// Board refresh frequency in seconds (the value 0 disable this feature, 10 seconds by default)
-define('BOARD_CHECK_INTERVAL', 10);
-
-// Period (in second) to consider a task was modified recently (0 to disable, 2 days by default)
-define('RECENT_TASK_PERIOD', 48*60*60);
 
 // Database driver: sqlite, mysql or postgres (sqlite by default)
 define('DB_DRIVER', 'sqlite');
@@ -54,6 +45,9 @@ define('LDAP_PORT', 389);
 
 // By default, require certificate to be verified for ldaps:// style URL. Set to false to skip the verification.
 define('LDAP_SSL_VERIFY', true);
+
+// Enable LDAP START_TLS
+define('LDAP_START_TLS', false);
 
 // LDAP bind type: "anonymous", "user" (use the given user/password from the form) and "proxy" (a specific user to browse the LDAP directory)
 define('LDAP_BIND_TYPE', 'anonymous');
@@ -109,3 +103,6 @@ define('REVERSE_PROXY_DEFAULT_ADMIN', '');
 
 // Default domain to use for setting the email address
 define('REVERSE_PROXY_DEFAULT_DOMAIN', '');
+
+// Enable or disable "Strict-Transport-Security" HTTP header
+define('ENABLE_HSTS', true);

@@ -11,14 +11,14 @@ namespace Core;
 class Translator
 {
     /**
-     * Locales path
+     * Locale path
      *
      * @var string
      */
-    const PATH = 'app/Locales/';
+    const PATH = 'app/Locale/';
 
     /**
-     * Locales
+     * Locale
      *
      * @static
      * @access private
@@ -180,6 +180,9 @@ class Translator
 
         if (file_exists($filename)) {
             self::$locales = require $filename;
+        }
+        else {
+            self::$locales = array();
         }
     }
 }

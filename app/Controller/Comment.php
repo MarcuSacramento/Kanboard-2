@@ -24,9 +24,8 @@ class Comment extends Base
             $this->notfound();
         }
 
-        if (! $this->acl->isAdminUser() && $comment['user_id'] != $this->acl->getUserId()) {
-            $this->response->html($this->template->layout('comment_forbidden', array(
-                'menu' => 'tasks',
+        if (! $this->userSession->isAdmin() && $comment['user_id'] != $this->userSession->getId()) {
+            $this->response->html($this->template->layout('comment/forbidden', array(
                 'title' => t('Access Forbidden')
             )));
         }
@@ -39,18 +38,21 @@ class Comment extends Base
      *
      * @access public
      */
-    public function create()
+    public function create(array $values = array(), array $errors = array())
     {
         $task = $this->getTask();
 
-        $this->response->html($this->taskLayout('comment_create', array(
-            'values' => array(
-                'user_id' => $this->acl->getUserId(),
+        if (empty($values)) {
+            $values = array(
+                'user_id' => $this->userSession->getId(),
                 'task_id' => $task['id'],
-            ),
-            'errors' => array(),
+            );
+        }
+
+        $this->response->html($this->taskLayout('comment/create', array(
+            'values' => $values,
+            'errors' => $errors,
             'task' => $task,
-            'menu' => 'tasks',
             'title' => t('Add a comment')
         )));
     }
@@ -76,16 +78,10 @@ class Comment extends Base
                 $this->session->flashError(t('Unable to create your comment.'));
             }
 
-            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'#comments');
+            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#comments');
         }
 
-        $this->response->html($this->taskLayout('comment_create', array(
-            'values' => $values,
-            'errors' => $errors,
-            'task' => $task,
-            'menu' => 'tasks',
-            'title' => t('Add a comment')
-        )));
+        $this->create($values, $errors);
     }
 
     /**
@@ -93,17 +89,16 @@ class Comment extends Base
      *
      * @access public
      */
-    public function edit()
+    public function edit(array $values = array(), array $errors = array())
     {
         $task = $this->getTask();
         $comment = $this->getComment();
 
-        $this->response->html($this->taskLayout('comment_edit', array(
-            'values' => $comment,
-            'errors' => array(),
+        $this->response->html($this->taskLayout('comment/edit', array(
+            'values' => empty($values) ? $comment : $values,
+            'errors' => $errors,
             'comment' => $comment,
             'task' => $task,
-            'menu' => 'tasks',
             'title' => t('Edit a comment')
         )));
     }
@@ -130,17 +125,10 @@ class Comment extends Base
                 $this->session->flashError(t('Unable to update your comment.'));
             }
 
-            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'#comment-'.$comment['id']);
+            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#comment-'.$comment['id']);
         }
 
-        $this->response->html($this->taskLayout('comment_edit', array(
-            'values' => $values,
-            'errors' => $errors,
-            'comment' => $comment,
-            'task' => $task,
-            'menu' => 'tasks',
-            'title' => t('Edit a comment')
-        )));
+        $this->edit($values, $errors);
     }
 
     /**
@@ -153,10 +141,9 @@ class Comment extends Base
         $task = $this->getTask();
         $comment = $this->getComment();
 
-        $this->response->html($this->taskLayout('comment_remove', array(
+        $this->response->html($this->taskLayout('comment/remove', array(
             'comment' => $comment,
             'task' => $task,
-            'menu' => 'tasks',
             'title' => t('Remove a comment')
         )));
     }
@@ -179,6 +166,6 @@ class Comment extends Base
             $this->session->flashError(t('Unable to remove this comment.'));
         }
 
-        $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'#comments');
+        $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#comments');
     }
 }

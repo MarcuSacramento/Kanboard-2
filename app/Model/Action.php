@@ -2,7 +2,8 @@
 
 namespace Model;
 
-use LogicException;
+use Integration\GitlabWebhook;
+use Integration\GithubWebhook;
 use SimpleValidator\Validator;
 use SimpleValidator\Validators;
 
@@ -36,8 +37,9 @@ class Action extends Base
      */
     public function getAvailableActions()
     {
-        return array(
-            'TaskClose' => t('Close the task'),
+        $values = array(
+            'TaskClose' => t('Close a task'),
+            'TaskOpen' => t('Open a task'),
             'TaskAssignSpecificUser' => t('Assign the task to a specific user'),
             'TaskAssignCurrentUser' => t('Assign the task to the person who does the action'),
             'TaskDuplicateAnotherProject' => t('Duplicate the task to another project'),
@@ -45,7 +47,15 @@ class Action extends Base
             'TaskAssignColorUser' => t('Assign a color to a specific user'),
             'TaskAssignColorCategory' => t('Assign automatically a color based on a category'),
             'TaskAssignCategoryColor' => t('Assign automatically a category based on a color'),
+            'CommentCreation' => t('Create a comment from an external provider'),
+            'TaskCreation' => t('Create a task from an external provider'),
+            'TaskAssignUser' => t('Change the assignee based on an external username'),
+            'TaskAssignCategoryLabel' => t('Change the category based on an external label'),
         );
+
+        asort($values);
+
+        return $values;
     }
 
     /**
@@ -56,16 +66,51 @@ class Action extends Base
      */
     public function getAvailableEvents()
     {
-        return array(
+        $values = array(
             Task::EVENT_MOVE_COLUMN => t('Move a task to another column'),
-            Task::EVENT_MOVE_POSITION => t('Move a task to another position in the same column'),
             Task::EVENT_UPDATE => t('Task modification'),
             Task::EVENT_CREATE => t('Task creation'),
             Task::EVENT_OPEN => t('Open a closed task'),
             Task::EVENT_CLOSE => t('Closing a task'),
             Task::EVENT_CREATE_UPDATE => t('Task creation or modification'),
             Task::EVENT_ASSIGNEE_CHANGE => t('Task assignee change'),
+            GithubWebhook::EVENT_COMMIT => t('Github commit received'),
+            GithubWebhook::EVENT_ISSUE_OPENED => t('Github issue opened'),
+            GithubWebhook::EVENT_ISSUE_CLOSED => t('Github issue closed'),
+            GithubWebhook::EVENT_ISSUE_REOPENED => t('Github issue reopened'),
+            GithubWebhook::EVENT_ISSUE_ASSIGNEE_CHANGE => t('Github issue assignee change'),
+            GithubWebhook::EVENT_ISSUE_LABEL_CHANGE => t('Github issue label change'),
+            GithubWebhook::EVENT_ISSUE_COMMENT => t('Github issue comment created'),
+            GitlabWebhook::EVENT_COMMIT => t('Gitlab commit received'),
+            GitlabWebhook::EVENT_ISSUE_OPENED => t('Gitlab issue opened'),
+            GitlabWebhook::EVENT_ISSUE_CLOSED => t('Gitlab issue closed'),
         );
+
+        asort($values);
+
+        return $values;
+    }
+
+    /**
+     * Return the name and description of compatible actions
+     *
+     * @access public
+     * @param  string    $action_name   Action name
+     * @return array
+     */
+    public function getCompatibleEvents($action_name)
+    {
+        $action = $this->load($action_name, 0, '');
+        $compatible_events = $action->getCompatibleEvents();
+        $events = array();
+
+        foreach ($this->getAvailableEvents() as $event_name => $event_description) {
+            if (in_array($event_name, $compatible_events)) {
+                $events[$event_name] = $event_description;
+            }
+        }
+
+        return $events;
     }
 
     /**
@@ -95,9 +140,17 @@ class Action extends Base
     public function getAll()
     {
         $actions = $this->db->table(self::TABLE)->findAll();
+        $params = $this->db->table(self::TABLE_PARAMS)->findAll();
 
         foreach ($actions as &$action) {
-            $action['params'] = $this->db->table(self::TABLE_PARAMS)->eq('action_id', $action['id'])->findAll();
+
+            $action['params'] = array();
+
+            foreach ($params as $param) {
+                if ($param['action_id'] === $action['id']) {
+                    $action['params'][] = $param;
+                }
+            }
         }
 
         return $actions;
@@ -115,7 +168,7 @@ class Action extends Base
 
         foreach ($this->getAll() as $action) {
 
-            $action = $this->load($action['action_name'], $action['project_id']);
+            $action = $this->load($action['action_name'], $action['project_id'], $action['event_name']);
             $params += $action->getActionRequiredParameters();
         }
 
@@ -146,6 +199,7 @@ class Action extends Base
      */
     public function remove($action_id)
     {
+        // $this->container['fileCache']->remove('proxy_action_getAll');
         return $this->db->table(self::TABLE)->eq('id', $action_id)->remove();
     }
 
@@ -189,6 +243,8 @@ class Action extends Base
 
         $this->db->closeTransaction();
 
+        // $this->container['fileCache']->remove('proxy_action_getAll');
+
         return true;
     }
 
@@ -199,15 +255,18 @@ class Action extends Base
      */
     public function attachEvents()
     {
-        foreach ($this->getAll() as $action) {
+        //$actions = $this->container['fileCache']->proxy('action', 'getAll');
+        $actions = $this->getAll();
 
-            $listener = $this->load($action['action_name'], $action['project_id']);
+        foreach ($actions as $action) {
+
+            $listener = $this->load($action['action_name'], $action['project_id'], $action['event_name']);
 
             foreach ($action['params'] as $param) {
                 $listener->setParam($param['name'], $param['value']);
             }
 
-            $this->event->attach($action['event_name'], $listener);
+            $this->container['dispatcher']->addListener($action['event_name'], array($listener, 'execute'));
         }
     }
 
@@ -215,21 +274,15 @@ class Action extends Base
      * Load an action
      *
      * @access public
-     * @param  string $name Action class name
-     * @param  integer $project_id Project id
-     * @throws \LogicException
-     * @return \Core\Listener       Action Instance
+     * @param  string           $name         Action class name
+     * @param  integer          $project_id   Project id
+     * @param  string           $event        Event name
+     * @return \Core\Listener                 Action instance
      */
-    public function load($name, $project_id)
+    public function load($name, $project_id, $event)
     {
         $className = '\Action\\'.$name;
-
-        if ($name === 'TaskAssignCurrentUser') {
-            return new $className($project_id, new Task($this->registry), new Acl($this->registry));
-        }
-        else {
-            return new $className($project_id, new Task($this->registry));
-        }
+        return new $className($this->container, $project_id, $event);
     }
 
     /**
@@ -267,6 +320,8 @@ class Action extends Base
                 }
             }
         }
+
+        // $this->container['fileCache']->remove('proxy_action_getAll');
 
         return true;
     }

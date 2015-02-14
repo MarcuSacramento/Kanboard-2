@@ -24,11 +24,34 @@ class Board extends Base
      * Get Kanboard default columns
      *
      * @access public
-     * @return array
+     * @return string[]
      */
     public function getDefaultColumns()
     {
         return array(t('Backlog'), t('Ready'), t('Work in progress'), t('Done'));
+    }
+
+    /**
+     * Get user default columns
+     *
+     * @access public
+     * @return array
+     */
+    public function getUserColumns()
+    {
+        $column_names = explode(',', $this->config->get('board_columns', implode(',', $this->getDefaultColumns())));
+        $columns = array();
+
+        foreach ($column_names as $column_name) {
+
+            $column_name = trim($column_name);
+
+            if (! empty($column_name)) {
+                $columns[] = array('title' => $column_name, 'task_limit' => 0);
+            }
+        }
+
+        return $columns;
     }
 
     /**
@@ -86,16 +109,18 @@ class Board extends Base
      * @param  integer   $project_id    Project id
      * @param  string    $title         Column title
      * @param  integer   $task_limit    Task limit
-     * @return boolean
+     * @return boolean|integer
      */
     public function addColumn($project_id, $title, $task_limit = 0)
     {
-        return $this->db->table(self::TABLE)->save(array(
+        $values = array(
             'project_id' => $project_id,
             'title' => $title,
             'task_limit' => $task_limit,
             'position' => $this->getLastColumnPosition($project_id) + 1,
-        ));
+        );
+
+        return $this->persist(self::TABLE, $values);
     }
 
     /**
@@ -202,38 +227,47 @@ class Board extends Base
     }
 
     /**
-     * Get all columns and tasks for a given project
+     * Get all tasks sorted by columns and swimlanes
      *
      * @access public
      * @param  integer $project_id Project id
-     * @param  array $filters
      * @return array
      */
-    public function get($project_id, array $filters = array())
+    public function getBoard($project_id)
     {
-        $this->db->startTransaction();
-
+        $swimlanes = $this->swimlane->getSwimlanes($project_id);
         $columns = $this->getColumns($project_id);
+        $nb_columns = count($columns);
 
-        $filters[] = array('column' => 'project_id', 'operator' => 'eq', 'value' => $project_id);
-        $filters[] = array('column' => 'is_active', 'operator' => 'eq', 'value' => Task::STATUS_OPEN);
+        for ($i = 0, $ilen = count($swimlanes); $i < $ilen; $i++) {
 
-        $tasks = $this->task->find($filters);
+            $swimlanes[$i]['columns'] = $columns;
+            $swimlanes[$i]['nb_columns'] = $nb_columns;
 
-        foreach ($columns as &$column) {
-
-            $column['tasks'] = array();
-
-            foreach ($tasks as &$task) {
-                if ($task['column_id'] == $column['id']) {
-                    $column['tasks'][] = $task;
-                }
+            for ($j = 0; $j < $nb_columns; $j++) {
+                $swimlanes[$i]['columns'][$j]['tasks'] = $this->taskFinder->getTasksByColumnAndSwimlane($project_id, $columns[$j]['id'], $swimlanes[$i]['id']);
+                $swimlanes[$i]['columns'][$j]['nb_tasks'] = count($swimlanes[$i]['columns'][$j]['tasks']);
             }
         }
 
-        $this->db->closeTransaction();
+        return $swimlanes;
+    }
 
-        return $columns;
+    /**
+     * Get the total of tasks per column
+     *
+     * @access public
+     * @param  integer   $project_id
+     * @return array
+     */
+    public function getColumnStats($project_id)
+    {
+        return $this->db
+                    ->table(Task::TABLE)
+                    ->eq('project_id', $project_id)
+                    ->eq('is_active', 1)
+                    ->groupBy('column_id')
+                    ->listing('column_id', 'COUNT(*) AS total');
     }
 
     /**

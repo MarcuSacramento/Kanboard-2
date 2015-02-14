@@ -4,6 +4,7 @@ namespace Model;
 
 use SimpleValidator\Validator;
 use SimpleValidator\Validators;
+use Core\Session;
 
 /**
  * User model
@@ -28,36 +29,31 @@ class User extends Base
     const EVERYBODY_ID = -1;
 
     /**
-     * Get the default project from the session
+     * Return the full name
      *
-     * @access public
-     * @return integer
+     * @param  array    $user   User properties
+     * @return string
      */
-    public function getFavoriteProjectId()
+    public function getFullname(array $user)
     {
-        return isset($_SESSION['user']['default_project_id']) ? $_SESSION['user']['default_project_id'] : 0;
+        return $user['name'] ?: $user['username'];
     }
 
     /**
-     * Get the last seen project from the session
+     * Return true is the given user id is administrator
      *
      * @access public
-     * @return integer
+     * @param  integer   $user_id   User id
+     * @return boolean
      */
-    public function getLastSeenProjectId()
+    public function isAdmin($user_id)
     {
-        return empty($_SESSION['user']['last_show_project_id']) ? 0 : $_SESSION['user']['last_show_project_id'];
-    }
-
-    /**
-     * Set the last seen project from the session
-     *
-     * @access public
-     * @@param integer    $project_id    Project id
-     */
-    public function storeLastSeenProjectId($project_id)
-    {
-        $_SESSION['user']['last_show_project_id'] = (int) $project_id;
+        return $this->userSession->isAdmin() ||  // Avoid SQL query if connected
+               $this->db
+                    ->table(User::TABLE)
+                    ->eq('id', $user_id)
+                    ->eq('is_admin', 1)
+                    ->count() === 1;
     }
 
     /**
@@ -119,8 +115,62 @@ class User extends Base
         return $this->db
                     ->table(self::TABLE)
                     ->asc('username')
-                    ->columns('id', 'username', 'name', 'email', 'is_admin', 'default_project_id', 'is_ldap_user', 'notifications_enabled', 'google_id', 'github_id')
+                    ->columns(
+                        'id',
+                        'username',
+                        'name',
+                        'email',
+                        'is_admin',
+                        'default_project_id',
+                        'is_ldap_user',
+                        'notifications_enabled',
+                        'google_id',
+                        'github_id'
+                    )
                     ->findAll();
+    }
+
+    /**
+     * Get all users with pagination
+     *
+     * @access public
+     * @param  integer    $offset        Offset
+     * @param  integer    $limit         Limit
+     * @param  string     $column        Sorting column
+     * @param  string     $direction     Sorting direction
+     * @return array
+     */
+    public function paginate($offset = 0, $limit = 25, $column = 'username', $direction = 'ASC')
+    {
+        return $this->db
+                    ->table(self::TABLE)
+                    ->columns(
+                        'id',
+                        'username',
+                        'name',
+                        'email',
+                        'is_admin',
+                        'default_project_id',
+                        'is_ldap_user',
+                        'notifications_enabled',
+                        'google_id',
+                        'github_id'
+                    )
+                    ->offset($offset)
+                    ->limit($limit)
+                    ->orderBy($column, $direction)
+                    ->findAll();
+    }
+
+    /**
+     * Get the number of users
+     *
+     * @access public
+     * @return integer
+     */
+    public function count()
+    {
+        return $this->db->table(self::TABLE)->count();
     }
 
     /**
@@ -132,7 +182,18 @@ class User extends Base
     public function getList()
     {
         $users = $this->db->table(self::TABLE)->columns('id', 'username', 'name')->findAll();
+        return $this->prepareList($users);
+    }
 
+    /**
+     * Common method to prepare a user list
+     *
+     * @access public
+     * @param  array     $users    Users list (from database)
+     * @return array               Formated list
+     */
+    public function prepareList(array $users)
+    {
         $result = array();
 
         foreach ($users as $user) {
@@ -162,21 +223,8 @@ class User extends Base
             }
         }
 
-        if (isset($values['confirmation'])) {
-            unset($values['confirmation']);
-        }
-
-        if (isset($values['current_password'])) {
-            unset($values['current_password']);
-        }
-
-        if (isset($values['is_admin']) && empty($values['is_admin'])) {
-            $values['is_admin'] = 0;
-        }
-
-        if (isset($values['is_ldap_user']) && empty($values['is_ldap_user'])) {
-            $values['is_ldap_user'] = 0;
-        }
+        $this->removeFields($values, array('confirmation', 'current_password'));
+        $this->resetFields($values, array('is_admin', 'is_ldap_user'));
     }
 
     /**
@@ -184,12 +232,12 @@ class User extends Base
      *
      * @access public
      * @param  array  $values  Form values
-     * @return boolean
+     * @return boolean|integer
      */
     public function create(array $values)
     {
         $this->prepare($values);
-        return $this->db->table(self::TABLE)->save($values);
+        return $this->persist(self::TABLE, $values);
     }
 
     /**
@@ -205,8 +253,8 @@ class User extends Base
         $result = $this->db->table(self::TABLE)->eq('id', $values['id'])->update($values);
 
         // If the user is connected refresh his session
-        if (session_id() !== '' && $_SESSION['user']['id'] == $values['id']) {
-            $this->updateSession();
+        if (Session::isOpen() && $this->userSession->getId() == $values['id']) {
+            $this->userSession->refresh();
         }
 
         return $result;
@@ -221,39 +269,29 @@ class User extends Base
      */
     public function remove($user_id)
     {
-        $this->db->startTransaction();
+        return $this->db->transaction(function ($db) use ($user_id) {
 
-        // All tasks assigned to this user will be unassigned
-        $this->db->table(Task::TABLE)->eq('owner_id', $user_id)->update(array('owner_id' => 0));
-        $result = $this->db->table(self::TABLE)->eq('id', $user_id)->remove();
+            // All assigned tasks are now unassigned
+            if (! $db->table(Task::TABLE)->eq('owner_id', $user_id)->update(array('owner_id' => 0))) {
+                return false;
+            }
 
-        $this->db->closeTransaction();
+            // All private projects are removed
+            $project_ids = $db->table(Project::TABLE)
+                           ->eq('is_private', 1)
+                           ->eq(ProjectPermission::TABLE.'.user_id', $user_id)
+                           ->join(ProjectPermission::TABLE, 'project_id', 'id')
+                           ->findAllByColumn(Project::TABLE.'.id');
 
-        return $result;
-    }
+            if (! empty($project_ids)) {
+                $db->table(Project::TABLE)->in('id', $project_ids)->remove();
+            }
 
-    /**
-     * Update user session information
-     *
-     * @access public
-     * @param  array  $user  User data
-     */
-    public function updateSession(array $user = array())
-    {
-        if (empty($user)) {
-            $user = $this->getById($_SESSION['user']['id']);
-        }
-
-        if (isset($user['password'])) {
-            unset($user['password']);
-        }
-
-        $user['id'] = (int) $user['id'];
-        $user['default_project_id'] = (int) $user['default_project_id'];
-        $user['is_admin'] = (bool) $user['is_admin'];
-        $user['is_ldap_user'] = (bool) $user['is_ldap_user'];
-
-        $_SESSION['user'] = $user;
+            // Finally remove the user
+            if (! $db->table(User::TABLE)->eq('id', $user_id)->remove()) {
+                return false;
+            }
+        });
     }
 
     /**
@@ -372,7 +410,7 @@ class User extends Base
         if ($v->execute()) {
 
             // Check password
-            if ($this->authentication->authenticate($_SESSION['user']['username'], $values['current_password'])) {
+            if ($this->authentication->authenticate($this->session['user']['username'], $values['current_password'])) {
                 return array(true, array());
             }
             else {
@@ -381,61 +419,5 @@ class User extends Base
         }
 
         return array(false, $v->getErrors());
-    }
-
-    /**
-     * Get the user agent of the connected user
-     *
-     * @access public
-     * @return string
-     */
-    public function getUserAgent()
-    {
-        return empty($_SERVER['HTTP_USER_AGENT']) ? t('Unknown') : $_SERVER['HTTP_USER_AGENT'];
-    }
-
-    /**
-     * Get the real IP address of the connected user
-     *
-     * @access public
-     * @param  bool    $only_public   Return only public IP address
-     * @return string
-     */
-    public function getIpAddress($only_public = false)
-    {
-        $keys = array(
-            'HTTP_CLIENT_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_FORWARDED',
-            'HTTP_X_CLUSTER_CLIENT_IP',
-            'HTTP_FORWARDED_FOR',
-            'HTTP_FORWARDED',
-            'REMOTE_ADDR'
-        );
-
-        foreach ($keys as $key) {
-
-            if (isset($_SERVER[$key])) {
-
-                foreach (explode(',', $_SERVER[$key]) as $ip_address) {
-
-                    $ip_address = trim($ip_address);
-
-                    if ($only_public) {
-
-                        // Return only public IP address
-                        if (filter_var($ip_address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false) {
-                            return $ip_address;
-                        }
-                    }
-                    else {
-
-                        return $ip_address;
-                    }
-                }
-            }
-        }
-
-        return t('Unknown');
     }
 }

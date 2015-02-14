@@ -2,6 +2,7 @@
 
 namespace Model;
 
+use Event\CommentEvent;
 use SimpleValidator\Validator;
 use SimpleValidator\Validators;
 
@@ -95,24 +96,22 @@ class Comment extends Base
     }
 
     /**
-     * Save a comment in the database
+     * Create a new comment
      *
      * @access public
      * @param  array    $values   Form values
-     * @return boolean
+     * @return boolean|integer
      */
     public function create(array $values)
     {
         $values['date'] = time();
+        $comment_id = $this->persist(self::TABLE, $values);
 
-        if ($this->db->table(self::TABLE)->save($values)) {
-
-            $values['id'] = $this->db->getConnection()->getLastId();
-            $this->event->trigger(self::EVENT_CREATE, $values);
-            return true;
+        if ($comment_id) {
+            $this->container['dispatcher']->dispatch(self::EVENT_CREATE, new CommentEvent(array('id' => $comment_id) + $values));
         }
 
-        return false;
+        return $comment_id;
     }
 
     /**
@@ -129,7 +128,7 @@ class Comment extends Base
                     ->eq('id', $values['id'])
                     ->update(array('comment' => $values['comment']));
 
-        $this->event->trigger(self::EVENT_UPDATE, $values);
+        $this->container['dispatcher']->dispatch(self::EVENT_UPDATE, new CommentEvent($values));
 
         return $result;
     }

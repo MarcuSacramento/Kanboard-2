@@ -32,19 +32,22 @@ class Subtask extends Base
      *
      * @access public
      */
-    public function create()
+    public function create(array $values = array(), array $errors = array())
     {
         $task = $this->getTask();
 
-        $this->response->html($this->taskLayout('subtask_create', array(
-            'values' => array(
+        if (empty($values)) {
+            $values = array(
                 'task_id' => $task['id'],
-            ),
-            'errors' => array(),
-            'users_list' => $this->project->getUsersList($task['project_id']),
+                'another_subtask' => $this->request->getIntegerParam('another_subtask', 0)
+            );
+        }
+
+        $this->response->html($this->taskLayout('subtask/create', array(
+            'values' => $values,
+            'errors' => $errors,
+            'users_list' => $this->projectPermission->getMemberList($task['project_id']),
             'task' => $task,
-            'menu' => 'tasks',
-            'title' => t('Add a sub-task')
         )));
     }
 
@@ -70,20 +73,13 @@ class Subtask extends Base
             }
 
             if (isset($values['another_subtask']) && $values['another_subtask'] == 1) {
-                $this->response->redirect('?controller=subtask&action=create&task_id='.$task['id']);
+                $this->response->redirect('?controller=subtask&action=create&task_id='.$task['id'].'&another_subtask=1&project_id='.$task['project_id']);
             }
 
-            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'#subtasks');
+            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#subtasks');
         }
 
-        $this->response->html($this->taskLayout('subtask_create', array(
-            'values' => $values,
-            'errors' => $errors,
-            'users_list' => $this->project->getUsersList($task['project_id']),
-            'task' => $task,
-            'menu' => 'tasks',
-            'title' => t('Add a sub-task')
-        )));
+        $this->create($values, $errors);
     }
 
     /**
@@ -91,20 +87,18 @@ class Subtask extends Base
      *
      * @access public
      */
-    public function edit()
+    public function edit(array $values = array(), array $errors = array())
     {
         $task = $this->getTask();
         $subtask = $this->getSubTask();
 
-        $this->response->html($this->taskLayout('subtask_edit', array(
-            'values' => $subtask,
-            'errors' => array(),
-            'users_list' => $this->project->getUsersList($task['project_id']),
+        $this->response->html($this->taskLayout('subtask/edit', array(
+            'values' => empty($values) ? $subtask : $values,
+            'errors' => $errors,
+            'users_list' => $this->projectPermission->getMemberList($task['project_id']),
             'status_list' => $this->subTask->getStatusList(),
             'subtask' => $subtask,
             'task' => $task,
-            'menu' => 'tasks',
-            'title' => t('Edit a sub-task')
         )));
     }
 
@@ -116,7 +110,7 @@ class Subtask extends Base
     public function update()
     {
         $task = $this->getTask();
-        $subtask = $this->getSubtask();
+        $this->getSubtask();
 
         $values = $this->request->getValues();
         list($valid, $errors) = $this->subTask->validateModification($values);
@@ -130,19 +124,10 @@ class Subtask extends Base
                 $this->session->flashError(t('Unable to update your sub-task.'));
             }
 
-            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'#subtasks');
+            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#subtasks');
         }
 
-        $this->response->html($this->taskLayout('subtask_edit', array(
-            'values' => $values,
-            'errors' => $errors,
-            'users_list' => $this->project->getUsersList($task['project_id']),
-            'status_list' => $this->subTask->getStatusList(),
-            'subtask' => $subtask,
-            'task' => $task,
-            'menu' => 'tasks',
-            'title' => t('Edit a sub-task')
-        )));
+        $this->edit($values, $errors);
     }
 
     /**
@@ -155,11 +140,9 @@ class Subtask extends Base
         $task = $this->getTask();
         $subtask = $this->getSubtask();
 
-        $this->response->html($this->taskLayout('subtask_remove', array(
+        $this->response->html($this->taskLayout('subtask/remove', array(
             'subtask' => $subtask,
             'task' => $task,
-            'menu' => 'tasks',
-            'title' => t('Remove a sub-task')
         )));
     }
 
@@ -181,6 +164,23 @@ class Subtask extends Base
             $this->session->flashError(t('Unable to remove this sub-task.'));
         }
 
-        $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'#subtasks');
+        $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#subtasks');
+    }
+
+    /**
+     * Change status to the next status: Toto -> In Progress -> Done
+     *
+     * @access public
+     */
+    public function toggleStatus()
+    {
+        $task = $this->getTask();
+        $subtask_id = $this->request->getIntegerParam('subtask_id');
+
+        if (! $this->subTask->toggleStatus($subtask_id)) {
+            $this->session->flashError(t('Unable to update your sub-task.'));
+        }
+
+        $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#subtasks');
     }
 }

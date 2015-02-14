@@ -2,10 +2,9 @@
 
 namespace Model;
 
-use SimpleValidator\Validator;
-use SimpleValidator\Validators;
 use Core\Translator;
 use Core\Security;
+use Core\Session;
 
 /**
  * Config model
@@ -20,42 +19,60 @@ class Config extends Base
      *
      * @var string
      */
-    const TABLE = 'config';
+    const TABLE = 'settings';
 
     /**
      * Get available timezones
      *
      * @access public
+     * @param  boolean   $prepend  Prepend a default value
      * @return array
      */
-    public function getTimezones()
+    public function getTimezones($prepend = false)
     {
         $timezones = timezone_identifiers_list();
-        return array_combine(array_values($timezones), $timezones);
+        $listing = array_combine(array_values($timezones), $timezones);
+
+        if ($prepend) {
+            return array('' => t('Application default')) + $listing;
+        }
+
+        return $listing;
     }
 
     /**
      * Get available languages
      *
      * @access public
+     * @param  boolean   $prepend  Prepend a default value
      * @return array
      */
-    public function getLanguages()
+    public function getLanguages($prepend = false)
     {
         // Sorted by value
-        return array(
+        $languages = array(
+            'da_DK' => 'Dansk',
             'de_DE' => 'Deutsch',
             'en_US' => 'English',
             'es_ES' => 'Español',
             'fr_FR' => 'Français',
             'it_IT' => 'Italiano',
+            'hu_HU' => 'Magyar',
             'pl_PL' => 'Polski',
             'pt_BR' => 'Português (Brasil)',
             'ru_RU' => 'Русский',
             'fi_FI' => 'Suomi',
             'sv_SE' => 'Svenska',
             'zh_CN' => '中文(简体)',
+            'ja_JP' => '日本語',
+            'th_TH' => 'ไทย',
         );
+
+        if ($prepend) {
+            return array('' => t('Application default')) + $languages;
+        }
+
+        return $languages;
     }
 
     /**
@@ -68,12 +85,18 @@ class Config extends Base
      */
     public function get($name, $default_value = '')
     {
-        if (! isset($_SESSION['config'][$name])) {
-            $_SESSION['config'] = $this->getAll();
+        if (! Session::isOpen()) {
+            $value = $this->db->table(self::TABLE)->eq('option', $name)->findOneColumn('value');
+            return $value ?: $default_value;
         }
 
-        if (! empty($_SESSION['config'][$name])) {
-            return $_SESSION['config'][$name];
+        // Cache config in session
+        if (! isset($this->session['config'][$name])) {
+            $this->session['config'] = $this->getAll();
+        }
+
+        if (! empty($this->session['config'][$name])) {
+            return $this->session['config'][$name];
         }
 
         return $default_value;
@@ -87,7 +110,7 @@ class Config extends Base
      */
     public function getAll()
     {
-        return $this->db->table(self::TABLE)->findOne();
+        return $this->db->table(self::TABLE)->listing('option', 'value');
     }
 
     /**
@@ -99,8 +122,16 @@ class Config extends Base
      */
     public function save(array $values)
     {
-        $_SESSION['config'] = $values;
-        return $this->db->table(self::TABLE)->update($values);
+        foreach ($values as $option => $value) {
+
+            $result = $this->db->table(self::TABLE)->eq('option', $option)->update(array('value' => $value));
+
+            if (! $result) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -110,28 +141,38 @@ class Config extends Base
      */
     public function reload()
     {
-        $_SESSION['config'] = $this->getAll();
-        Translator::load($this->get('language', 'en_US'));
+        $this->session['config'] = $this->getAll();
+        $this->setupTranslations();
     }
 
     /**
-     * Validate settings modification
+     * Load translations
      *
      * @access public
-     * @param  array    $values           Form values
-     * @return array    $valid, $errors   [0] = Success or not, [1] = List of errors
      */
-    public function validateModification(array $values)
+    public function setupTranslations()
     {
-        $v = new Validator($values, array(
-            new Validators\Required('language', t('The language is required')),
-            new Validators\Required('timezone', t('The timezone is required')),
-        ));
+        if ($this->userSession->isLogged() && ! empty($this->session['user']['language'])) {
+            Translator::load($this->session['user']['language']);
+        }
+        else {
+            Translator::load($this->get('application_language', 'en_US'));
+        }
+    }
 
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
+    /**
+     * Set timezone
+     *
+     * @access public
+     */
+    public function setupTimezone()
+    {
+        if ($this->userSession->isLogged() && ! empty($this->session['user']['timezone'])) {
+            date_default_timezone_set($this->session['user']['timezone']);
+        }
+        else {
+            date_default_timezone_set($this->get('application_timezone', 'UTC'));
+        }
     }
 
     /**
@@ -168,21 +209,15 @@ class Config extends Base
     }
 
     /**
-     * Regenerate all tokens (projects and webhooks)
+     * Regenerate a token
      *
      * @access public
+     * @param  string   $option   Parameter name
      */
-    public function regenerateTokens()
+    public function regenerateToken($option)
     {
-        $this->db->table(self::TABLE)->update(array(
-            'webhooks_token' => Security::generateToken(),
-            'api_token' => Security::generateToken(),
-        ));
-
-        $projects = $this->db->table(Project::TABLE)->findAllByColumn('id');
-
-        foreach ($projects as $project_id) {
-            $this->db->table(Project::TABLE)->eq('id', $project_id)->update(array('token' => Security::generateToken()));
-        }
+        return $this->db->table(self::TABLE)
+                 ->eq('option', $option)
+                 ->update(array('value' => Security::generateToken()));
     }
 }
