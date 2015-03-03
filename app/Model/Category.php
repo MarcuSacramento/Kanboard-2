@@ -84,10 +84,10 @@ class Category extends Base
      */
     public function getList($project_id, $prepend_none = true, $prepend_all = false)
     {
-        $listing = $this->db->hashtable(self::TABLE)
+        $listing = $this->db->table(self::TABLE)
             ->eq('project_id', $project_id)
             ->asc('name')
-            ->getAll('id', 'name');
+            ->listing('id', 'name');
 
         $prepend = array();
 

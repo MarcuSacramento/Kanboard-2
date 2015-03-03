@@ -87,27 +87,15 @@ class DateParser extends Base
     }
 
     /**
-     * Remove the time from a timestamp
+     * For a given timestamp, reset the date to midnight
      *
      * @access public
      * @param  integer    $timestamp    Timestamp
      * @return integer
      */
-    public function removeTimeFromTimestamp($timestamp)
+    public function resetDateToMidnight($timestamp)
     {
         return mktime(0, 0, 0, date('m', $timestamp), date('d', $timestamp), date('Y', $timestamp));
-    }
-
-    /**
-     * Get a timetstamp from an ISO date format
-     *
-     * @access public
-     * @param  string   $date   Date format
-     * @return integer
-     */
-    public function getTimestampFromIsoFormat($date)
-    {
-        return $this->removeTimeFromTimestamp(strtotime($date));
     }
 
     /**
@@ -147,7 +135,7 @@ class DateParser extends Base
         foreach ($fields as $field) {
 
             if (! empty($values[$field]) && ! is_numeric($values[$field])) {
-                $values[$field] = $this->removeTimeFromTimestamp($this->getTimestamp($values[$field]));
+                $values[$field] = $this->getTimestamp($values[$field]);
             }
         }
     }

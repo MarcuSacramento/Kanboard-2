@@ -205,7 +205,6 @@ class Board extends Base
 
         foreach ($columns as $column) {
             $values['title['.$column['id'].']'] = $column['title'];
-            $values['description['.$column['id'].']'] = $column['description'];
             $values['task_limit['.$column['id'].']'] = $column['task_limit'] ?: null;
         }
 
@@ -219,39 +218,28 @@ class Board extends Base
     }
 
     /**
-     * Display a form to edit a board
+     * Validate and update a board
      *
      * @access public
      */
-    public function editColumn(array $values = array(), array $errors = array())
+    public function update()
     {
         $project = $this->getProject();
-        $column = $this->board->getColumn($this->request->getIntegerParam('column_id'));
+        $columns = $this->board->getColumns($project['id']);
+        $data = $this->request->getValues();
+        $values = $columns_list = array();
 
-        $this->response->html($this->projectLayout('board/edit_column', array(
-            'errors' => $errors,
-            'values' => $values ?: $column,
-            'project' => $project,
-            'column' => $column,
-            'title' => t('Edit column "%s"', $column['title'])
-        )));
-    }
+        foreach ($columns as $column) {
+            $columns_list[$column['id']] = $column['title'];
+            $values['title['.$column['id'].']'] = isset($data['title'][$column['id']]) ? $data['title'][$column['id']] : '';
+            $values['task_limit['.$column['id'].']'] = isset($data['task_limit'][$column['id']]) ? $data['task_limit'][$column['id']] : 0;
+        }
 
-    /**
-     * Validate and update a column
-     *
-     * @access public
-     */
-    public function updateColumn()
-    {
-        $project = $this->getProject();
-        $values = $this->request->getValues();
-
-        list($valid, $errors) = $this->board->validateModification($values);
+        list($valid, $errors) = $this->board->validateModification($columns_list, $values);
 
         if ($valid) {
 
-            if ($this->board->updateColumn($values['id'], $values['title'], $values['task_limit'], $values['description'])) {
+            if ($this->board->update($data)) {
                 $this->session->flash(t('Board updated successfully.'));
                 $this->response->redirect('?controller=board&action=edit&project_id='.$project['id']);
             }
@@ -260,7 +248,7 @@ class Board extends Base
             }
         }
 
-        $this->editcolumn($values, $errors);
+        $this->edit($values, $errors);
     }
 
     /**
@@ -283,7 +271,7 @@ class Board extends Base
 
         if ($valid) {
 
-            if ($this->board->addColumn($project['id'], $data['title'], $data['task_limit'], $data['description'])) {
+            if ($this->board->addColumn($project['id'], $data['title'])) {
                 $this->session->flash(t('Board updated successfully.'));
                 $this->response->redirect('?controller=board&action=edit&project_id='.$project['id']);
             }
@@ -402,20 +390,6 @@ class Board extends Base
     }
 
     /**
-     * Get links on mouseover
-     *
-     * @access public
-     */
-    public function tasklinks()
-    {
-        $task = $this->getTask();
-        $this->response->html($this->template->render('board/tasklinks', array(
-            'links' => $this->taskLink->getLinks($task['id']),
-            'task' => $task,
-        )));
-    }
-
-    /**
      * Get subtasks on mouseover
      *
      * @access public
@@ -424,7 +398,23 @@ class Board extends Base
     {
         $task = $this->getTask();
         $this->response->html($this->template->render('board/subtasks', array(
-            'subtasks' => $this->subtask->getAll($task['id']),
+            'subtasks' => $this->subTask->getAll($task['id']),
+            'task' => $task,
+        )));
+    }
+
+    /**
+     * Change the status of a subtask from the mouseover
+     *
+     * @access public
+     */
+    public function toggleSubtask()
+    {
+        $task = $this->getTask();
+        $this->subTask->toggleStatus($this->request->getIntegerParam('subtask_id'));
+
+        $this->response->html($this->template->render('board/subtasks', array(
+            'subtasks' => $this->subTask->getAll($task['id']),
             'task' => $task,
         )));
     }
@@ -459,7 +449,7 @@ class Board extends Base
     }
 
     /**
-     * Display task description
+     * Display the description
      *
      * @access public
      */

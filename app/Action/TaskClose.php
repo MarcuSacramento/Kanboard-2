@@ -4,7 +4,6 @@ namespace Action;
 
 use Integration\GitlabWebhook;
 use Integration\GithubWebhook;
-use Integration\BitbucketWebhook;
 use Model\Task;
 
 /**
@@ -29,7 +28,6 @@ class TaskClose extends Base
             GithubWebhook::EVENT_ISSUE_CLOSED,
             GitlabWebhook::EVENT_COMMIT,
             GitlabWebhook::EVENT_ISSUE_CLOSED,
-            BitbucketWebhook::EVENT_COMMIT,
         );
     }
 
@@ -46,7 +44,6 @@ class TaskClose extends Base
             case GithubWebhook::EVENT_ISSUE_CLOSED:
             case GitlabWebhook::EVENT_COMMIT:
             case GitlabWebhook::EVENT_ISSUE_CLOSED:
-            case BitbucketWebhook::EVENT_COMMIT:
                 return array();
             default:
                 return array('column_id' => t('Column'));
@@ -66,7 +63,6 @@ class TaskClose extends Base
             case GithubWebhook::EVENT_ISSUE_CLOSED:
             case GitlabWebhook::EVENT_COMMIT:
             case GitlabWebhook::EVENT_ISSUE_CLOSED:
-            case BitbucketWebhook::EVENT_COMMIT:
                 return array('task_id');
             default:
                 return array('task_id', 'column_id');
@@ -99,7 +95,6 @@ class TaskClose extends Base
             case GithubWebhook::EVENT_ISSUE_CLOSED:
             case GitlabWebhook::EVENT_COMMIT:
             case GitlabWebhook::EVENT_ISSUE_CLOSED:
-            case BitbucketWebhook::EVENT_COMMIT:
                 return true;
             default:
                 return $data['column_id'] == $this->getParam('column_id');

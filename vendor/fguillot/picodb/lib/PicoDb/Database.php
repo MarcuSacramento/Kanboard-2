@@ -190,18 +190,13 @@ class Database
      *
      * @access public
      * @param  string    $value    Value
-     * @param  string    $table    Table name
      * @return string
      */
-    public function escapeIdentifier($value, $table = '')
+    public function escapeIdentifier($value)
     {
         // Do not escape custom query
         if (strpos($value, '.') !== false || strpos($value, ' ') !== false) {
             return $value;
-        }
-
-        if (! empty($table)) {
-            return $this->pdo->escapeIdentifier($table).'.'.$this->pdo->escapeIdentifier($value);
         }
 
         return $this->pdo->escapeIdentifier($value);
@@ -314,19 +309,6 @@ class Database
     {
         require_once __DIR__.'/Table.php';
         return new Table($this, $table_name);
-    }
-
-    /**
-     * Get a hashtable instance
-     *
-     * @access public
-     * @return Picodb\Hashtable
-     */
-    public function hashtable($table_name)
-    {
-        require_once __DIR__.'/Table.php';
-        require_once __DIR__.'/Hashtable.php';
-        return new Hashtable($this, $table_name);
     }
 
     /**

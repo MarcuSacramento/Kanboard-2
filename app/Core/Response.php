@@ -168,23 +168,6 @@ class Response
     }
 
     /**
-     * Send a css response
-     *
-     * @access public
-     * @param  string   $data          Raw data
-     * @param  integer  $status_code   HTTP status code
-     */
-    public function css($data, $status_code = 200)
-    {
-        $this->status($status_code);
-
-        header('Content-Type: text/css; charset=utf-8');
-        echo $data;
-
-        exit;
-    }
-
-    /**
      * Send a binary response
      *
      * @access public
@@ -212,7 +195,24 @@ class Response
         $policies['default-src'] = "'self'";
         $values = '';
 
-        foreach ($policies as $policy => $acl) {
+        foreach ($policies as $policy => $hosts) {
+
+            if (is_array($hosts)) {
+
+                $acl = '';
+
+                foreach ($hosts as &$host) {
+
+                    if ($host === '*' || $host === 'self' || strpos($host, 'http') === 0) {
+                        $acl .= $host.' ';
+                    }
+                }
+            }
+            else {
+
+                $acl = $hosts;
+            }
+
             $values .= $policy.' '.trim($acl).'; ';
         }
 

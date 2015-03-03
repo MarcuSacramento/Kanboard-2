@@ -56,13 +56,11 @@ class ProjectActivity extends Base
      * @access public
      * @param  integer     $project_id      Project id
      * @param  integer     $limit           Maximum events number
-     * @param  integer     $start           Timestamp of earliest activity
-     * @param  integer     $end             Timestamp of latest activity
      * @return array
      */
-    public function getProject($project_id, $limit = 50, $start = null, $end = null)
+    public function getProject($project_id, $limit = 50)
     {
-        return $this->getProjects(array($project_id), $limit, $start, $end);
+        return $this->getProjects(array($project_id), $limit);
     }
 
     /**
@@ -71,17 +69,15 @@ class ProjectActivity extends Base
      * @access public
      * @param  integer[]   $project_ids     Projects id
      * @param  integer     $limit           Maximum events number
-     * @param  integer     $start           Timestamp of earliest activity
-     * @param  integer     $end             Timestamp of latest activity
      * @return array
      */
-    public function getProjects(array $project_ids, $limit = 50, $start = null, $end = null)
+    public function getProjects(array $project_ids, $limit = 50)
     {
         if (empty($project_ids)) {
             return array();
         }
 
-        $query = $this->db->table(self::TABLE)
+        $events = $this->db->table(self::TABLE)
                            ->columns(
                                 self::TABLE.'.*',
                                 User::TABLE.'.username AS author_username',
@@ -89,18 +85,9 @@ class ProjectActivity extends Base
                            )
                            ->in('project_id', $project_ids)
                            ->join(User::TABLE, 'id', 'creator_id')
-                           ->desc(self::TABLE.'.id')
-                           ->limit($limit);
-
-        if(!is_null($start)){
-            $query->gte('date_creation', $start);
-        }
-
-        if(!is_null($end)){
-            $query->lte('date_creation', $end);
-        }
-
-        $events = $query->findAll();
+                           ->desc('id')
+                           ->limit($limit)
+                           ->findAll();
 
         foreach ($events as &$event) {
 
@@ -175,9 +162,9 @@ class ProjectActivity extends Base
                 return t('%s moved the task #%d to the column "%s"', $event['author'], $event['task']['id'], $event['task']['column_title']);
             case Task::EVENT_MOVE_POSITION:
                 return t('%s moved the task #%d to the position %d in the column "%s"', $event['author'], $event['task']['id'], $event['task']['position'], $event['task']['column_title']);
-            case Subtask::EVENT_UPDATE:
+            case SubTask::EVENT_UPDATE:
                 return t('%s updated a subtask for the task #%d', $event['author'], $event['task']['id']);
-            case Subtask::EVENT_CREATE:
+            case SubTask::EVENT_CREATE:
                 return t('%s created a subtask for the task #%d', $event['author'], $event['task']['id']);
             case Comment::EVENT_UPDATE:
                 return t('%s updated a comment on the task #%d', $event['author'], $event['task']['id']);

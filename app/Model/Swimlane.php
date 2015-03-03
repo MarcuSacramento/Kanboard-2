@@ -161,20 +161,20 @@ class Swimlane extends Base
      *
      * @access public
      * @param  integer   $project_id    Project id
-     * @param  boolean   $prepend       Prepend default value
      * @return array
      */
-    public function getList($project_id, $prepend = false)
+    public function getSwimlanesList($project_id)
     {
-        $swimlanes = array();
-        $swimlanes[] = $this->db->table(Project::TABLE)->eq('id', $project_id)->findOneColumn('default_swimlane');
+        $swimlanes = $this->db->table(self::TABLE)
+                              ->eq('project_id', $project_id)
+                              ->orderBy('position', 'asc')
+                              ->listing('id', 'name');
 
-        $swimlanes = array_merge(
-            $swimlanes,
-            $this->db->hashtable(self::TABLE)->eq('project_id', $project_id)->orderBy('name', 'asc')->getAll('id', 'name')
-        );
+        $swimlanes[0] = $this->db->table(Project::TABLE)
+                                     ->eq('id', $project_id)
+                                     ->findOneColumn('default_swimlane');
 
-        return $prepend ? array(-1 => t('All swimlanes')) + $swimlanes : $swimlanes;
+        return $swimlanes;
     }
 
     /**
@@ -183,7 +183,7 @@ class Swimlane extends Base
      * @access public
      * @param  integer   $project_id
      * @param  string    $name
-     * @return integer|boolean
+     * @return bool
      */
     public function create($project_id, $name)
     {
@@ -354,11 +354,11 @@ class Swimlane extends Base
      */
     public function moveDown($project_id, $swimlane_id)
     {
-        $swimlanes = $this->db->hashtable(self::TABLE)
+        $swimlanes = $this->db->table(self::TABLE)
                               ->eq('project_id', $project_id)
                               ->eq('is_active', self::ACTIVE)
                               ->asc('position')
-                              ->getAll('id', 'position');
+                              ->listing('id', 'position');
 
         $positions = array_flip($swimlanes);
 
@@ -388,11 +388,11 @@ class Swimlane extends Base
      */
     public function moveUp($project_id, $swimlane_id)
     {
-        $swimlanes = $this->db->hashtable(self::TABLE)
+        $swimlanes = $this->db->table(self::TABLE)
                               ->eq('project_id', $project_id)
                               ->eq('is_active', self::ACTIVE)
                               ->asc('position')
-                              ->getAll('id', 'position');
+                              ->listing('id', 'position');
 
         $positions = array_flip($swimlanes);
 
@@ -410,37 +410,6 @@ class Swimlane extends Base
         }
 
         return false;
-    }
-
-    /**
-     * Duplicate Swimlane to project
-     *
-     * @access public
-     * @param   integer    $project_from      Project Template
-     * @param   integer    $project_to        Project that receives the copy
-     * @return  integer|boolean
-     */
-
-    public function duplicate($project_from, $project_to)
-    {
-        $swimlanes = $this->getAll($project_from);
-
-        foreach ($swimlanes as $swimlane) {
-
-            unset($swimlane['id']);
-            $swimlane['project_id'] = $project_to;
-
-            if (! $this->db->table(self::TABLE)->save($swimlane)) {
-                return false;
-            }
-        }
-
-        $default_swimlane = $this->getDefault($project_from);
-        $default_swimlane['id'] = $project_to;
-
-        $this->updateDefault($default_swimlane);
-
-        return true;
     }
 
     /**

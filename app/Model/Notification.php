@@ -119,18 +119,6 @@ class Notification extends Base
     }
 
     /**
-     * Get the mail subject for a given label
-     *
-     * @access private
-     * @param  string    $label       Label
-     * @param  array     $data        Template data
-     */
-    private function getStandardMailSubject($label, array $data)
-    {
-        return sprintf('[%s][%s] %s (#%d)', $data['task']['project_name'], $label, $data['task']['title'], $data['task']['id']);
-    }
-
-    /**
      * Get the mail subject for a given template name
      *
      * @access public
@@ -141,40 +129,40 @@ class Notification extends Base
     {
         switch ($template) {
             case 'file_creation':
-                $subject = $this->getStandardMailSubject(t('New attachment'), $data);
+                $subject = e('[%s][New attachment] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'comment_creation':
-                $subject = $this->getStandardMailSubject(t('New comment'), $data);
+                $subject = e('[%s][New comment] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'comment_update':
-                $subject = $this->getStandardMailSubject(t('Comment updated'), $data);
+                $subject = e('[%s][Comment updated] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'subtask_creation':
-                $subject = $this->getStandardMailSubject(t('New subtask'), $data);
+                $subject = e('[%s][New subtask] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'subtask_update':
-                $subject = $this->getStandardMailSubject(t('Subtask updated'), $data);
+                $subject = e('[%s][Subtask updated] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'task_creation':
-                $subject = $this->getStandardMailSubject(t('New task'), $data);
+                $subject = e('[%s][New task] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'task_update':
-                $subject = $this->getStandardMailSubject(t('Task updated'), $data);
+                $subject = e('[%s][Task updated] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'task_close':
-                $subject = $this->getStandardMailSubject(t('Task closed'), $data);
+                $subject = e('[%s][Task closed] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'task_open':
-                $subject = $this->getStandardMailSubject(t('Task opened'), $data);
+                $subject = e('[%s][Task opened] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'task_move_column':
-                $subject = $this->getStandardMailSubject(t('Column Change'), $data);
+                $subject = e('[%s][Column Change] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'task_move_position':
-                $subject = $this->getStandardMailSubject(t('Position Change'), $data);
+                $subject = e('[%s][Position Change] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'task_assignee_change':
-                $subject = $this->getStandardMailSubject(t('Assignee Change'), $data);
+                $subject = e('[%s][Assignee Change] %s (#%d)', $data['task']['project_name'], $data['task']['title'], $data['task']['id']);
                 break;
             case 'task_due':
                 $subject = e('[%s][Due tasks]', $data['project']);

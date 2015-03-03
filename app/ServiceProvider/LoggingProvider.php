@@ -16,7 +16,7 @@ class LoggingProvider implements ServiceProviderInterface
         $logger->setLogger(new Syslog('kanboard'));
 
         if (DEBUG) {
-            $logger->setLogger(new File(DEBUG_FILE));
+            $logger->setLogger(new File(__DIR__.'/../../data/debug.log'));
         }
 
         $container['logger'] = $logger;

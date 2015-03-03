@@ -41,7 +41,6 @@ class Comment extends Base
     public function create(array $values = array(), array $errors = array())
     {
         $task = $this->getTask();
-        $ajax = $this->request->isAjax() || $this->request->getIntegerParam('ajax');
 
         if (empty($values)) {
             $values = array(
@@ -50,20 +49,11 @@ class Comment extends Base
             );
         }
 
-        if ($ajax) {
-            $this->response->html($this->template->render('comment/create', array(
-                'values' => $values,
-                'errors' => $errors,
-                'task' => $task,
-                'ajax' => $ajax,
-            )));
-        }
-
         $this->response->html($this->taskLayout('comment/create', array(
             'values' => $values,
             'errors' => $errors,
             'task' => $task,
-            'title' => t('Add a comment'),
+            'title' => t('Add a comment')
         )));
     }
 
@@ -76,7 +66,6 @@ class Comment extends Base
     {
         $task = $this->getTask();
         $values = $this->request->getValues();
-        $ajax = $this->request->isAjax() || $this->request->getIntegerParam('ajax');
 
         list($valid, $errors) = $this->comment->validateCreation($values);
 
@@ -87,10 +76,6 @@ class Comment extends Base
             }
             else {
                 $this->session->flashError(t('Unable to create your comment.'));
-            }
-
-            if ($ajax) {
-                $this->response->redirect('?controller=board&action=show&project_id='.$task['project_id']);
             }
 
             $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#comments');

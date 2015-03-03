@@ -2,6 +2,8 @@
 
 namespace Controller;
 
+use Model\File as FileModel;
+
 /**
  * File controller
  *
@@ -52,7 +54,7 @@ class File extends Base
     {
         $task = $this->getTask();
         $file = $this->file->getById($this->request->getIntegerParam('file_id'));
-        $filename = FILES_DIR.$file['path'];
+        $filename = FileModel::BASE_PATH.$file['path'];
 
         if ($file['task_id'] == $task['id'] && file_exists($filename)) {
             $this->response->forceDownload($file['name']);
@@ -89,7 +91,7 @@ class File extends Base
     {
         $task = $this->getTask();
         $file = $this->file->getById($this->request->getIntegerParam('file_id'));
-        $filename = FILES_DIR.$file['path'];
+        $filename = FileModel::BASE_PATH.$file['path'];
 
         if ($file['task_id'] == $task['id'] && file_exists($filename)) {
             $metadata = getimagesize($filename);

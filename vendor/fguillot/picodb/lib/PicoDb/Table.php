@@ -9,27 +9,19 @@ class Table
     const SORT_ASC = 'ASC';
     const SORT_DESC = 'DESC';
 
-    protected $db;
-    protected $table_name = '';
-    protected $values = array();
-
-    private $columns = array();
-
+    private $table_name = '';
     private $sql_limit = '';
     private $sql_offset = '';
     private $sql_order = '';
-
     private $joins = array();
-
-    private $condition = '';
     private $conditions = array();
     private $or_conditions = array();
     private $is_or_condition = false;
-
+    private $columns = array();
+    private $values = array();
     private $distinct = false;
     private $group_by = array();
-
-    private $filter_callback = null;
+    private $db;
 
     /**
      * Constructor
@@ -88,7 +80,7 @@ class Table
             'UPDATE %s SET %s %s',
             $this->db->escapeIdentifier($this->table_name),
             implode(', ', $columns),
-            $this->buildCondition()
+            $this->conditions()
         );
 
         return $this->db->execute($sql, $values) !== false;
@@ -130,7 +122,7 @@ class Table
         $sql = sprintf(
             'DELETE FROM %s %s',
             $this->db->escapeIdentifier($this->table_name),
-            $this->buildCondition()
+            $this->conditions()
         );
 
         $result = $this->db->execute($sql, $this->values);
@@ -138,16 +130,27 @@ class Table
     }
 
     /**
-     * Add callback to alter the resultset
+     * Hashmap result [ [column1 => column2], [], ...]
      *
      * @access public
-     * @param  array|callable  $callback
-     * @return \PicoDb\Table
+     * @param  string    $key      Column 1
+     * @param  string    $value    Column 2
+     * @return array
      */
-    public function filter($callback)
+    public function listing($key, $value)
     {
-        $this->filter_callback = $callback;
-        return $this;
+        $listing = array();
+
+        $this->columns($key, $value);
+        $rq = $this->db->execute($this->buildSelectQuery(), $this->values);
+
+        $rows = $rq->fetchAll(PDO::FETCH_NUM);
+
+        foreach ($rows as $row) {
+            $listing[$row[0]] = $row[1];
+        }
+
+        return $listing;
     }
 
     /**
@@ -159,13 +162,7 @@ class Table
     public function findAll()
     {
         $rq = $this->db->execute($this->buildSelectQuery(), $this->values);
-        $results = $rq->fetchAll(PDO::FETCH_ASSOC);
-
-        if (is_callable($this->filter_callback)) {
-            return call_user_func($this->filter_callback, $results);
-        }
-
-        return $results;
+        return $rq->fetchAll(PDO::FETCH_ASSOC);
     }
 
     /**
@@ -224,7 +221,7 @@ class Table
     public function buildSelectQuery()
     {
         foreach ($this->columns as $key => $value) {
-            $this->columns[$key] = $this->db->escapeIdentifier($value, $this->table_name);
+            $this->columns[$key] = $this->db->escapeIdentifier($value);
         }
 
         return sprintf(
@@ -233,7 +230,7 @@ class Table
             empty($this->columns) ? '*' : implode(', ', $this->columns),
             $this->db->escapeIdentifier($this->table_name),
             implode(' ', $this->joins),
-            $this->buildCondition(),
+            $this->conditions(),
             empty($this->group_by) ? '' : 'GROUP BY '.implode(', ', $this->group_by),
             $this->sql_order,
             $this->sql_limit,
@@ -250,7 +247,7 @@ class Table
     public function count()
     {
         $sql = sprintf(
-            'SELECT COUNT(*) FROM %s '.implode(' ', $this->joins).$this->buildCondition().$this->sql_order.$this->sql_limit.$this->sql_offset,
+            'SELECT COUNT(*) FROM %s'.$this->conditions().$this->sql_order.$this->sql_limit.$this->sql_offset,
             $this->db->escapeIdentifier($this->table_name)
         );
 
@@ -283,29 +280,13 @@ class Table
     }
 
     /**
-     * Add custom condition
+     * Build conditions
      *
-     * @access private
-     * @return Table
-     */
-    private function condition($condition)
-    {
-        $this->condition = $condition;
-        return $this;
-    }
-
-    /**
-     * Build condition
-     *
-     * @access private
+     * @access public
      * @return string
      */
-    private function buildCondition()
+    public function conditions()
     {
-        if (! empty($this->condition)) {
-            return 'WHERE '.$this->condition;
-        }
-
         return empty($this->conditions) ? '' : ' WHERE '.implode(' AND ', $this->conditions);
     }
 
@@ -314,7 +295,6 @@ class Table
      *
      * @access public
      * @param  string   $sql
-     * @return Table
      */
     public function addCondition($sql)
     {
@@ -324,8 +304,6 @@ class Table
         else {
             $this->conditions[] = $sql;
         }
-
-        return $this;
     }
 
     /**
