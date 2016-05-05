@@ -1,79 +1,172 @@
 <?php
 
-namespace ServiceProvider;
+namespace Kanboard\ServiceProvider;
 
-use Model\Config;
-use Model\Project;
-use Model\Webhook;
 use Pimple\Container;
 use Pimple\ServiceProviderInterface;
+use Kanboard\Core\Mail\Client as EmailClient;
+use Kanboard\Core\ObjectStorage\FileStorage;
+use Kanboard\Core\Paginator;
+use Kanboard\Core\Http\OAuth2;
+use Kanboard\Core\Tool;
+use Kanboard\Core\Http\Client as HttpClient;
 
 class ClassProvider implements ServiceProviderInterface
 {
     private $classes = array(
+        'Analytic' => array(
+            'TaskDistributionAnalytic',
+            'UserDistributionAnalytic',
+            'EstimatedTimeComparisonAnalytic',
+            'AverageLeadCycleTimeAnalytic',
+            'AverageTimeSpentColumnAnalytic',
+        ),
         'Model' => array(
-            'Acl',
             'Action',
-            'Authentication',
+            'ActionParameter',
+            'AvatarFile',
             'Board',
             'Category',
             'Color',
+            'Column',
             'Comment',
             'Config',
-            'DateParser',
-            'File',
+            'Currency',
+            'CustomFilter',
+            'Group',
+            'GroupMember',
             'LastLogin',
+            'Link',
             'Notification',
+            'PasswordReset',
             'Project',
+            'ProjectFile',
             'ProjectActivity',
-            'ProjectAnalytic',
-            'ProjectDailySummary',
-            'ProjectPaginator',
+            'ProjectDuplication',
+            'ProjectDailyColumnStats',
+            'ProjectDailyStats',
             'ProjectPermission',
-            'SubTask',
-            'SubtaskPaginator',
-            'SubtaskExport',
+            'ProjectNotification',
+            'ProjectMetadata',
+            'ProjectGroupRole',
+            'ProjectUserRole',
+            'RememberMeSession',
+            'Subtask',
+            'SubtaskTimeTracking',
             'Swimlane',
             'Task',
+            'TaskAnalytic',
             'TaskCreation',
             'TaskDuplication',
-            'TaskExport',
+            'TaskExternalLink',
             'TaskFinder',
+            'TaskFile',
+            'TaskLink',
             'TaskModification',
-            'TaskPaginator',
-            'TaskPermission',
             'TaskPosition',
             'TaskStatus',
-            'TaskValidator',
-            'TimeTracking',
+            'TaskMetadata',
+            'Transition',
             'User',
-            'UserSession',
-            'Webhook',
+            'UserLocking',
+            'UserMention',
+            'UserNotification',
+            'UserNotificationFilter',
+            'UserUnreadNotification',
+            'UserMetadata',
+        ),
+        'Validator' => array(
+            'ActionValidator',
+            'AuthValidator',
+            'CategoryValidator',
+            'ColumnValidator',
+            'CommentValidator',
+            'CurrencyValidator',
+            'CustomFilterValidator',
+            'ExternalLinkValidator',
+            'GroupValidator',
+            'LinkValidator',
+            'PasswordResetValidator',
+            'ProjectValidator',
+            'SubtaskValidator',
+            'SwimlaneValidator',
+            'TaskValidator',
+            'TaskLinkValidator',
+            'UserValidator',
+        ),
+        'Import' => array(
+            'TaskImport',
+            'UserImport',
+        ),
+        'Export' => array(
+            'SubtaskExport',
+            'TaskExport',
+            'TransitionExport',
         ),
         'Core' => array(
-            'Template',
-            'Session',
-            'MemoryCache',
-            'FileCache',
+            'DateParser',
+            'Lexer',
         ),
-        'Integration' => array(
-            'GitlabWebhook',
-            'GithubWebhook',
+        'Core\Event' => array(
+            'EventManager',
+        ),
+        'Core\Http' => array(
+            'Request',
+            'Response',
+            'RememberMeCookie',
+        ),
+        'Core\Cache' => array(
+            'MemoryCache',
+        ),
+        'Core\Plugin' => array(
+            'Hook',
+        ),
+        'Core\Security' => array(
+            'Token',
+            'Role',
+        ),
+        'Core\User' => array(
+            'GroupSync',
+            'UserSync',
+            'UserSession',
+            'UserProfile',
         )
     );
 
     public function register(Container $container)
     {
-        foreach ($this->classes as $namespace => $classes) {
+        Tool::buildDIC($container, $this->classes);
 
-            foreach ($classes as $name) {
+        $container['paginator'] = $container->factory(function ($c) {
+            return new Paginator($c);
+        });
 
-                $class = '\\'.$namespace.'\\'.$name;
+        $container['oauth'] = $container->factory(function ($c) {
+            return new OAuth2($c);
+        });
 
-                $container[lcfirst($name)] = function ($c) use ($class) {
-                    return new $class($c);
-                };
-            }
-        }
+        $container['httpClient'] = function ($c) {
+            return new HttpClient($c);
+        };
+
+        $container['objectStorage'] = function () {
+            return new FileStorage(FILES_DIR);
+        };
+
+        $container['emailClient'] = function ($container) {
+            $mailer = new EmailClient($container);
+            $mailer->setTransport('smtp', '\Kanboard\Core\Mail\Transport\Smtp');
+            $mailer->setTransport('sendmail', '\Kanboard\Core\Mail\Transport\Sendmail');
+            $mailer->setTransport('mail', '\Kanboard\Core\Mail\Transport\Mail');
+            return $mailer;
+        };
+
+        $container['cspRules'] = array(
+            'default-src' => "'self'",
+            'style-src' => "'self' 'unsafe-inline'",
+            'img-src' => '* data:',
+        );
+
+        return $container;
     }
 }

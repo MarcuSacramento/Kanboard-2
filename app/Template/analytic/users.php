@@ -7,7 +7,7 @@
 <?php else: ?>
     <section id="analytic-user-repartition">
 
-    <div id="chart" data-url="<?= $this->u('analytic', 'users', array('project_id' => $project['id'])) ?>"></div>
+    <div id="chart" data-metrics='<?= json_encode($metrics, JSON_HEX_APOS) ?>'></div>
 
     <table>
         <tr>
@@ -18,7 +18,7 @@
         <?php foreach ($metrics as $metric): ?>
         <tr>
             <td>
-                <?= $this->e($metric['user']) ?>
+                <?= $this->text->e($metric['user']) ?>
             </td>
             <td>
                 <?= $metric['nb_tasks'] ?>

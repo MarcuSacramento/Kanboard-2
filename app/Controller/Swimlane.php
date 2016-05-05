@@ -1,8 +1,8 @@
 <?php
 
-namespace Controller;
+namespace Kanboard\Controller;
 
-use Model\Swimlane as SwimlaneModel;
+use Kanboard\Model\Swimlane as SwimlaneModel;
 
 /**
  * Swimlanes
@@ -23,9 +23,9 @@ class Swimlane extends Base
     {
         $swimlane = $this->swimlane->getById($this->request->getIntegerParam('swimlane_id'));
 
-        if (! $swimlane) {
-            $this->session->flashError(t('Swimlane not found.'));
-            $this->response->redirect('?controller=swimlane&action=index&project_id='.$project_id);
+        if (empty($swimlane)) {
+            $this->flash->failure(t('Swimlane not found.'));
+            $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project_id)));
         }
 
         return $swimlane;
@@ -36,18 +36,32 @@ class Swimlane extends Base
      *
      * @access public
      */
-    public function index(array $values = array(), array $errors = array())
+    public function index()
     {
         $project = $this->getProject();
 
-        $this->response->html($this->projectLayout('swimlane/index', array(
+        $this->response->html($this->helper->layout->project('swimlane/index', array(
             'default_swimlane' => $this->swimlane->getDefault($project['id']),
             'active_swimlanes' => $this->swimlane->getAllByStatus($project['id'], SwimlaneModel::ACTIVE),
             'inactive_swimlanes' => $this->swimlane->getAllByStatus($project['id'], SwimlaneModel::INACTIVE),
+            'project' => $project,
+            'title' => t('Swimlanes')
+        )));
+    }
+
+    /**
+     * Create a new swimlane
+     *
+     * @access public
+     */
+    public function create(array $values = array(), array $errors = array())
+    {
+        $project = $this->getProject();
+
+        $this->response->html($this->template->render('swimlane/create', array(
             'values' => $values + array('project_id' => $project['id']),
             'errors' => $errors,
             'project' => $project,
-            'title' => t('Swimlanes')
         )));
     }
 
@@ -59,22 +73,36 @@ class Swimlane extends Base
     public function save()
     {
         $project = $this->getProject();
-
         $values = $this->request->getValues();
-        list($valid, $errors) = $this->swimlane->validateCreation($values);
+        list($valid, $errors) = $this->swimlaneValidator->validateCreation($values);
 
         if ($valid) {
-
-            if ($this->swimlane->create($project['id'], $values['name'])) {
-                $this->session->flash(t('Your swimlane have been created successfully.'));
-                $this->response->redirect('?controller=swimlane&action=index&project_id='.$project['id']);
-            }
-            else {
-                $this->session->flashError(t('Unable to create your swimlane.'));
+            if ($this->swimlane->create($values)) {
+                $this->flash->success(t('Your swimlane have been created successfully.'));
+                $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project['id'])));
+            } else {
+                $errors = array('name' => array(t('Another swimlane with the same name exists in the project')));
             }
         }
 
-        $this->index($values, $errors);
+        $this->create($values, $errors);
+    }
+
+    /**
+     * Edit default swimlane (display the form)
+     *
+     * @access public
+     */
+    public function editDefault(array $values = array(), array $errors = array())
+    {
+        $project = $this->getProject();
+        $swimlane = $this->swimlane->getDefault($project['id']);
+
+        $this->response->html($this->helper->layout->project('swimlane/edit_default', array(
+            'values' => empty($values) ? $swimlane : $values,
+            'errors' => $errors,
+            'project' => $project,
+        )));
     }
 
     /**
@@ -82,25 +110,23 @@ class Swimlane extends Base
      *
      * @access public
      */
-    public function change()
+    public function updateDefault()
     {
         $project = $this->getProject();
 
-        $values = $this->request->getValues();
-        list($valid,) = $this->swimlane->validateDefaultModification($values);
+        $values = $this->request->getValues() + array('show_default_swimlane' => 0);
+        list($valid, $errors) = $this->swimlaneValidator->validateDefaultModification($values);
 
         if ($valid) {
-
             if ($this->swimlane->updateDefault($values)) {
-                $this->session->flash(t('The default swimlane have been updated successfully.'));
-                $this->response->redirect('?controller=swimlane&action=index&project_id='.$project['id']);
-            }
-            else {
-                $this->session->flashError(t('Unable to update this swimlane.'));
+                $this->flash->success(t('The default swimlane have been updated successfully.'));
+                $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project['id'])), true);
+            } else {
+                $this->flash->failure(t('Unable to update this swimlane.'));
             }
         }
 
-        $this->index();
+        $this->editDefault($values, $errors);
     }
 
     /**
@@ -113,11 +139,10 @@ class Swimlane extends Base
         $project = $this->getProject();
         $swimlane = $this->getSwimlane($project['id']);
 
-        $this->response->html($this->projectLayout('swimlane/edit', array(
+        $this->response->html($this->helper->layout->project('swimlane/edit', array(
             'values' => empty($values) ? $swimlane : $values,
             'errors' => $errors,
             'project' => $project,
-            'title' => t('Swimlanes')
         )));
     }
 
@@ -131,16 +156,14 @@ class Swimlane extends Base
         $project = $this->getProject();
 
         $values = $this->request->getValues();
-        list($valid, $errors) = $this->swimlane->validateModification($values);
+        list($valid, $errors) = $this->swimlaneValidator->validateModification($values);
 
         if ($valid) {
-
-            if ($this->swimlane->rename($values['id'], $values['name'])) {
-                $this->session->flash(t('Swimlane updated successfully.'));
-                $this->response->redirect('?controller=swimlane&action=index&project_id='.$project['id']);
-            }
-            else {
-                $this->session->flashError(t('Unable to update this swimlane.'));
+            if ($this->swimlane->update($values)) {
+                $this->flash->success(t('Swimlane updated successfully.'));
+                $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project['id'])));
+            } else {
+                $errors = array('name' => array(t('Another swimlane with the same name exists in the project')));
             }
         }
 
@@ -157,10 +180,9 @@ class Swimlane extends Base
         $project = $this->getProject();
         $swimlane = $this->getSwimlane($project['id']);
 
-        $this->response->html($this->projectLayout('swimlane/remove', array(
+        $this->response->html($this->helper->layout->project('swimlane/remove', array(
             'project' => $project,
             'swimlane' => $swimlane,
-            'title' => t('Remove a swimlane')
         )));
     }
 
@@ -176,12 +198,12 @@ class Swimlane extends Base
         $swimlane_id = $this->request->getIntegerParam('swimlane_id');
 
         if ($this->swimlane->remove($project['id'], $swimlane_id)) {
-            $this->session->flash(t('Swimlane removed successfully.'));
+            $this->flash->success(t('Swimlane removed successfully.'));
         } else {
-            $this->session->flashError(t('Unable to remove this swimlane.'));
+            $this->flash->failure(t('Unable to remove this swimlane.'));
         }
 
-        $this->response->redirect('?controller=swimlane&action=index&project_id='.$project['id']);
+        $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project['id'])));
     }
 
     /**
@@ -196,12 +218,31 @@ class Swimlane extends Base
         $swimlane_id = $this->request->getIntegerParam('swimlane_id');
 
         if ($this->swimlane->disable($project['id'], $swimlane_id)) {
-            $this->session->flash(t('Swimlane updated successfully.'));
+            $this->flash->success(t('Swimlane updated successfully.'));
         } else {
-            $this->session->flashError(t('Unable to update this swimlane.'));
+            $this->flash->failure(t('Unable to update this swimlane.'));
         }
 
-        $this->response->redirect('?controller=swimlane&action=index&project_id='.$project['id']);
+        $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project['id'])));
+    }
+
+    /**
+     * Disable default swimlane
+     *
+     * @access public
+     */
+    public function disableDefault()
+    {
+        $this->checkCSRFParam();
+        $project = $this->getProject();
+
+        if ($this->swimlane->disableDefault($project['id'])) {
+            $this->flash->success(t('Swimlane updated successfully.'));
+        } else {
+            $this->flash->failure(t('Unable to update this swimlane.'));
+        }
+
+        $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project['id'])));
     }
 
     /**
@@ -216,41 +257,48 @@ class Swimlane extends Base
         $swimlane_id = $this->request->getIntegerParam('swimlane_id');
 
         if ($this->swimlane->enable($project['id'], $swimlane_id)) {
-            $this->session->flash(t('Swimlane updated successfully.'));
+            $this->flash->success(t('Swimlane updated successfully.'));
         } else {
-            $this->session->flashError(t('Unable to update this swimlane.'));
+            $this->flash->failure(t('Unable to update this swimlane.'));
         }
 
-        $this->response->redirect('?controller=swimlane&action=index&project_id='.$project['id']);
+        $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project['id'])));
     }
 
     /**
-     * Move up a swimlane
+     * Enable default swimlane
      *
      * @access public
      */
-    public function moveup()
+    public function enableDefault()
     {
         $this->checkCSRFParam();
         $project = $this->getProject();
-        $swimlane_id = $this->request->getIntegerParam('swimlane_id');
 
-        $this->swimlane->moveUp($project['id'], $swimlane_id);
-        $this->response->redirect('?controller=swimlane&action=index&project_id='.$project['id']);
+        if ($this->swimlane->enableDefault($project['id'])) {
+            $this->flash->success(t('Swimlane updated successfully.'));
+        } else {
+            $this->flash->failure(t('Unable to update this swimlane.'));
+        }
+
+        $this->response->redirect($this->helper->url->to('swimlane', 'index', array('project_id' => $project['id'])));
     }
 
     /**
-     * Move down a swimlane
+     * Move swimlane position
      *
      * @access public
      */
-    public function movedown()
+    public function move()
     {
-        $this->checkCSRFParam();
         $project = $this->getProject();
-        $swimlane_id = $this->request->getIntegerParam('swimlane_id');
+        $values = $this->request->getJson();
 
-        $this->swimlane->moveDown($project['id'], $swimlane_id);
-        $this->response->redirect('?controller=swimlane&action=index&project_id='.$project['id']);
+        if (! empty($values) && isset($values['swimlane_id']) && isset($values['position'])) {
+            $result = $this->swimlane->changePosition($project['id'], $values['swimlane_id'], $values['position']);
+            return $this->response->json(array('result' => $result));
+        }
+
+        $this->forbidden();
     }
 }

@@ -2,14 +2,14 @@
     <h2><?= t('Integration with third-party services') ?></h2>
 </div>
 
-<h3><i class="fa fa-github fa-fw"></i>&nbsp;<?= t('Github webhooks') ?></h3>
-<div class="listing">
-<input type="text" class="auto-select" readonly="readonly" value="<?= $this->getCurrentBaseUrl().$this->u('webhook', 'github', array('token' => $webhook_token, 'project_id' => $project['id'])) ?>"/><br/>
-<p class="form-help"><a href="http://kanboard.net/documentation/github-webhooks" target="_blank"><?= t('Help on Github webhooks') ?></a></p>
-</div>
+<form method="post" action="<?= $this->url->href('project', 'integrations', array('project_id' => $project['id'])) ?>" autocomplete="off">
+    <?= $this->form->csrf() ?>
 
-<h3><i class="fa fa-git fa-fw"></i>&nbsp;<?= t('Gitlab webhooks') ?></h3>
-<div class="listing">
-<input type="text" class="auto-select" readonly="readonly" value="<?= $this->getCurrentBaseUrl().$this->u('webhook', 'gitlab', array('token' => $webhook_token, 'project_id' => $project['id'])) ?>"/><br/>
-<p class="form-help"><a href="http://kanboard.net/documentation/gitlab-webhooks" target="_blank"><?= t('Help on Gitlab webhooks') ?></a></p>
-</div>
+    <?php $integrations = $this->hook->render('template:project:integrations', array('project' => $project, 'values' => $values, 'webhook_token' => $webhook_token)) ?>
+
+    <?php if (empty($integrations)): ?>
+        <p class="alert"><?= t('There is no integration registered at the moment.') ?></p>
+    <?php else: ?>
+        <?= $integrations ?>
+    <?php endif ?>
+</form>

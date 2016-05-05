@@ -1,38 +1,35 @@
 <div class="page-header">
     <h2><?= t('Edit user') ?></h2>
 </div>
-<form method="post" action="<?= $this->u('user', 'edit', array('user_id' => $user['id'])) ?>" autocomplete="off">
+<form method="post" action="<?= $this->url->href('user', 'edit', array('user_id' => $user['id'])) ?>" autocomplete="off">
 
-    <?= $this->formCsrf() ?>
+    <?= $this->form->csrf() ?>
 
-    <?= $this->formHidden('id', $values) ?>
-    <?= $this->formHidden('is_ldap_user', $values) ?>
+    <?= $this->form->hidden('id', $values) ?>
 
-    <?= $this->formLabel(t('Username'), 'username') ?>
-    <?= $this->formText('username', $values, $errors, array('required', $values['is_ldap_user'] == 1 ? 'readonly' : '')) ?><br/>
+    <?= $this->form->label(t('Username'), 'username') ?>
+    <?= $this->form->text('username', $values, $errors, array('required', isset($values['is_ldap_user']) && $values['is_ldap_user'] == 1 ? 'readonly' : '', 'maxlength="50"')) ?>
 
-    <?= $this->formLabel(t('Name'), 'name') ?>
-    <?= $this->formText('name', $values, $errors) ?><br/>
+    <?= $this->form->label(t('Name'), 'name') ?>
+    <?= $this->form->text('name', $values, $errors) ?>
 
-    <?= $this->formLabel(t('Email'), 'email') ?>
-    <?= $this->formEmail('email', $values, $errors) ?><br/>
+    <?= $this->form->label(t('Email'), 'email') ?>
+    <?= $this->form->email('email', $values, $errors) ?>
 
-    <?= $this->formLabel(t('Default project'), 'default_project_id') ?>
-    <?= $this->formSelect('default_project_id', $projects, $values, $errors) ?><br/>
+    <?= $this->form->label(t('Timezone'), 'timezone') ?>
+    <?= $this->form->select('timezone', $timezones, $values, $errors) ?>
 
-    <?= $this->formLabel(t('Timezone'), 'timezone') ?>
-    <?= $this->formSelect('timezone', $timezones, $values, $errors) ?><br/>
+    <?= $this->form->label(t('Language'), 'language') ?>
+    <?= $this->form->select('language', $languages, $values, $errors) ?>
 
-    <?= $this->formLabel(t('Language'), 'language') ?>
-    <?= $this->formSelect('language', $languages, $values, $errors) ?><br/>
-
-    <?php if ($this->userSession->isAdmin()): ?>
-        <?= $this->formCheckbox('is_admin', t('Administrator'), 1, isset($values['is_admin']) && $values['is_admin'] == 1 ? true : false) ?><br/>
+    <?php if ($this->user->isAdmin()): ?>
+        <?= $this->form->label(t('Role'), 'role') ?>
+        <?= $this->form->select('role', $roles, $values, $errors) ?>
     <?php endif ?>
 
     <div class="form-actions">
-        <input type="submit" value="<?= t('Save') ?>" class="btn btn-blue"/>
+        <button type="submit" class="btn btn-blue"><?= t('Save') ?></button>
         <?= t('or') ?>
-        <?= $this->a(t('cancel'), 'user', 'show', array('user_id' => $user['id'])) ?>
+        <?= $this->url->link(t('cancel'), 'user', 'show', array('user_id' => $user['id'])) ?>
     </div>
 </form>

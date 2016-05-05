@@ -1,23 +1,68 @@
 <?php
 
-namespace Core;
-
-use LogicException;
+namespace Kanboard\Core;
 
 /**
- * Template class
+ * Template
  *
  * @package core
  * @author  Frederic Guillot
+ *
+ * @property \Kanboard\Helper\AppHelper               $app
+ * @property \Kanboard\Helper\AssetHelper             $asset
+ * @property \Kanboard\Helper\DateHelper              $dt
+ * @property \Kanboard\Helper\FileHelper              $file
+ * @property \Kanboard\Helper\FormHelper              $form
+ * @property \Kanboard\Helper\HookHelper              $hook
+ * @property \Kanboard\Helper\ModelHelper             $model
+ * @property \Kanboard\Helper\SubtaskHelper           $subtask
+ * @property \Kanboard\Helper\TaskHelper              $task
+ * @property \Kanboard\Helper\TextHelper              $text
+ * @property \Kanboard\Helper\UrlHelper               $url
+ * @property \Kanboard\Helper\UserHelper              $user
+ * @property \Kanboard\Helper\LayoutHelper            $layout
+ * @property \Kanboard\Helper\ProjectHeaderHelper     $projectHeader
  */
-class Template extends Helper
+class Template
 {
     /**
-     * Template path
+     * Helper object
      *
-     * @var string
+     * @access private
+     * @var Helper
      */
-    const PATH = 'app/Template/';
+    private $helper;
+
+    /**
+     * List of template overrides
+     *
+     * @access private
+     * @var array
+     */
+    private $overrides = array();
+
+    /**
+     * Template constructor
+     *
+     * @access public
+     * @param  Helper $helper
+     */
+    public function __construct(Helper $helper)
+    {
+        $this->helper = $helper;
+    }
+
+    /**
+     * Expose helpers with magic getter
+     *
+     * @access public
+     * @param  string $helper
+     * @return mixed
+     */
+    public function __get($helper)
+    {
+        return $this->helper->getHelper($helper);
+    }
 
     /**
      * Render a template
@@ -27,39 +72,53 @@ class Template extends Helper
      * $template->render('template_name', ['bla' => 'value']);
      *
      * @access public
-     * @params string   $__template_name   Template name
-     * @params array    $__template_args   Key/Value map of template variables
+     * @param  string   $__template_name   Template name
+     * @param  array    $__template_args   Key/Value map of template variables
      * @return string
      */
     public function render($__template_name, array $__template_args = array())
     {
-        $__template_file = self::PATH.$__template_name.'.php';
-
-        if (! file_exists($__template_file)) {
-            throw new LogicException('Unable to load the template: "'.$__template_name.'"');
-        }
-
         extract($__template_args);
-
         ob_start();
-        include $__template_file;
+        include $this->getTemplateFile($__template_name);
         return ob_get_clean();
     }
 
     /**
-     * Render a page layout
+     * Define a new template override
      *
      * @access public
-     * @param  string   $template_name   Template name
-     * @param  array    $template_args   Key/value map
-     * @param  string   $layout_name     Layout name
+     * @param  string  $original_template
+     * @param  string  $new_template
+     */
+    public function setTemplateOverride($original_template, $new_template)
+    {
+        $this->overrides[$original_template] = $new_template;
+    }
+
+    /**
+     * Find template filename
+     *
+     * Core template: 'task/show' or 'kanboard:task/show'
+     * Plugin template: 'myplugin:task/show'
+     *
+     * @access public
+     * @param  string  $template
      * @return string
      */
-    public function layout($template_name, array $template_args = array(), $layout_name = 'layout')
+    public function getTemplateFile($template)
     {
-        return $this->render(
-            $layout_name,
-            $template_args + array('content_for_layout' => $this->render($template_name, $template_args))
-        );
+        $plugin = '';
+        $template = isset($this->overrides[$template]) ? $this->overrides[$template] : $template;
+
+        if (strpos($template, ':') !== false) {
+            list($plugin, $template) = explode(':', $template);
+        }
+
+        if ($plugin !== 'kanboard' && $plugin !== '') {
+            return implode(DIRECTORY_SEPARATOR, array(PLUGINS_DIR, ucfirst($plugin), 'Template', $template.'.php'));
+        }
+
+        return implode(DIRECTORY_SEPARATOR, array(__DIR__, '..', 'Template', $template.'.php'));
     }
 }

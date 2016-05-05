@@ -1,8 +1,8 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
-use Event\TaskEvent;
+use Kanboard\Event\TaskEvent;
 
 /**
  * Task Creation
@@ -25,10 +25,16 @@ class TaskCreation extends Base
             return 0;
         }
 
+        $position = empty($values['position']) ? 0 : $values['position'];
+
         $this->prepare($values);
         $task_id = $this->persist(Task::TABLE, $values);
 
         if ($task_id !== false) {
+            if ($position > 0 && $values['position'] > 1) {
+                $this->taskPosition->movePosition($values['project_id'], $task_id, $values['column_id'], $position, $values['swimlane_id'], false);
+            }
+
             $this->fireEvents($task_id, $values);
         }
 
@@ -43,12 +49,14 @@ class TaskCreation extends Base
      */
     public function prepare(array &$values)
     {
-        $this->dateParser->convert($values, array('date_due', 'date_started'));
-        $this->removeFields($values, array('another_task'));
-        $this->resetFields($values, array('owner_id', 'swimlane_id', 'date_due', 'score', 'category_id', 'time_estimated'));
+        $values = $this->dateParser->convert($values, array('date_due'));
+        $values = $this->dateParser->convert($values, array('date_started'), true);
+
+        $this->helper->model->removeFields($values, array('another_task'));
+        $this->helper->model->resetFields($values, array('date_started', 'creator_id', 'owner_id', 'swimlane_id', 'date_due', 'score', 'category_id', 'time_estimated'));
 
         if (empty($values['column_id'])) {
-            $values['column_id'] = $this->board->getFirstColumn($values['project_id']);
+            $values['column_id'] = $this->column->getFirstColumnId($values['project_id']);
         }
 
         if (empty($values['color_id'])) {
@@ -59,9 +67,14 @@ class TaskCreation extends Base
             $values['title'] = t('Untitled');
         }
 
+        if ($this->userSession->isLogged()) {
+            $values['creator_id'] = $this->userSession->getId();
+        }
+
         $values['swimlane_id'] = empty($values['swimlane_id']) ? 0 : $values['swimlane_id'];
         $values['date_creation'] = time();
         $values['date_modification'] = $values['date_creation'];
+        $values['date_moved'] = $values['date_creation'];
         $values['position'] = $this->taskFinder->countByColumnAndSwimlaneId($values['project_id'], $values['column_id'], $values['swimlane_id']) + 1;
     }
 
@@ -74,8 +87,16 @@ class TaskCreation extends Base
      */
     private function fireEvents($task_id, array $values)
     {
-        $values['task_id'] = $task_id;
-        $this->container['dispatcher']->dispatch(Task::EVENT_CREATE_UPDATE, new TaskEvent($values));
-        $this->container['dispatcher']->dispatch(Task::EVENT_CREATE, new TaskEvent($values));
+        $event = new TaskEvent(array('task_id' => $task_id) + $values);
+
+        $this->logger->debug('Event fired: '.Task::EVENT_CREATE_UPDATE);
+        $this->logger->debug('Event fired: '.Task::EVENT_CREATE);
+
+        $this->dispatcher->dispatch(Task::EVENT_CREATE_UPDATE, $event);
+        $this->dispatcher->dispatch(Task::EVENT_CREATE, $event);
+
+        if (! empty($values['description'])) {
+            $this->userMention->fireEvents($values['description'], Task::EVENT_USER_MENTION, $event);
+        }
     }
 }

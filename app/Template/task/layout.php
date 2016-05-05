@@ -1,15 +1,18 @@
 <section id="main">
-    <div class="page-header">
-        <ul>
-            <li><i class="fa fa-table fa-fw"></i><?= $this->a(t('Back to the board'), 'board', 'show', array('project_id' => $task['project_id'])) ?></li>
-        </ul>
-    </div>
-    <section class="sidebar-container" id="task-section">
+    <?= $this->projectHeader->render($project, 'Listing', 'show') ?>
+    <?= $this->hook->render('template:task:layout:top', array('task' => $task)) ?>
+    <section
+        class="sidebar-container" id="task-view"
+        data-edit-url="<?= $this->url->href('taskmodification', 'edit', array('task_id' => $task['id'], 'project_id' => $task['project_id'])) ?>"
+        data-description-url="<?= $this->url->href('taskmodification', 'description', array('task_id' => $task['id'], 'project_id' => $task['project_id'])) ?>"
+        data-subtask-url="<?= $this->url->href('subtask', 'create', array('task_id' => $task['id'], 'project_id' => $task['project_id'])) ?>"
+        data-internal-link-url="<?= $this->url->href('TaskInternalLink', 'create', array('task_id' => $task['id'], 'project_id' => $task['project_id'])) ?>"
+        data-comment-url="<?= $this->url->href('comment', 'create', array('task_id' => $task['id'], 'project_id' => $task['project_id'])) ?>">
 
-        <?= $this->render('task/sidebar', array('task' => $task)) ?>
+        <?= $this->render($sidebar_template, array('task' => $task)) ?>
 
         <div class="sidebar-content">
-            <?= $task_content_for_layout ?>
+            <?= $content_for_sublayout ?>
         </div>
     </section>
 </section>

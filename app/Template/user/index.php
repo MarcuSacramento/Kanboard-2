@@ -1,72 +1,66 @@
 <section id="main">
     <div class="page-header">
-        <?php if ($this->userSession->isAdmin()): ?>
+        <?php if ($this->user->hasAccess('user', 'create')): ?>
         <ul>
-            <li><i class="fa fa-plus fa-fw"></i><?= $this->a(t('New user'), 'user', 'create') ?></li>
+            <li><i class="fa fa-plus fa-fw"></i><?= $this->url->link(t('New local user'), 'user', 'create') ?></li>
+            <li><i class="fa fa-plus fa-fw"></i><?= $this->url->link(t('New remote user'), 'user', 'create', array('remote' => 1)) ?></li>
+            <li><i class="fa fa-upload fa-fw"></i><?= $this->url->link(t('Import'), 'userImport', 'step1') ?></li>
+            <li><i class="fa fa-users fa-fw"></i><?= $this->url->link(t('View all groups'), 'group', 'index') ?></li>
         </ul>
         <?php endif ?>
     </div>
-    <section>
-    <?php if (empty($users)): ?>
+    <?php if ($paginator->isEmpty()): ?>
         <p class="alert"><?= t('No user') ?></p>
     <?php else: ?>
-        <table>
+        <table class="table-stripped">
             <tr>
-                <th><?= $this->order(t('Id'), 'id', $pagination) ?></th>
-                <th><?= $this->order(t('Username'), 'username', $pagination) ?></th>
-                <th><?= $this->order(t('Name'), 'name', $pagination) ?></th>
-                <th><?= $this->order(t('Email'), 'email', $pagination) ?></th>
-                <th><?= $this->order(t('Administrator'), 'is_admin', $pagination) ?></th>
-                <th><?= $this->order(t('Default project'), 'default_project_id', $pagination) ?></th>
-                <th><?= $this->order(t('Notifications'), 'notifications_enabled', $pagination) ?></th>
-                <th><?= t('External accounts') ?></th>
-                <th><?= $this->order(t('Account type'), 'is_ldap_user', $pagination) ?></th>
+                <th class="column-5"><?= $paginator->order(t('Id'), 'id') ?></th>
+                <th class="column-18"><?= $paginator->order(t('Username'), 'username') ?></th>
+                <th class="column-18"><?= $paginator->order(t('Name'), 'name') ?></th>
+                <th class="column-15"><?= $paginator->order(t('Email'), 'email') ?></th>
+                <th class="column-15"><?= $paginator->order(t('Role'), 'role') ?></th>
+                <th class="column-10"><?= $paginator->order(t('Two Factor'), 'twofactor_activated') ?></th>
+                <th class="column-10"><?= $paginator->order(t('Account type'), 'is_ldap_user') ?></th>
+                <th class="column-10"><?= $paginator->order(t('Status'), 'is_active') ?></th>
+                <th class="column-5"><?= t('Actions') ?></th>
             </tr>
-            <?php foreach ($users as $user): ?>
+            <?php foreach ($paginator->getCollection() as $user): ?>
             <tr>
                 <td>
-                    <?= $this->a('#'.$user['id'], 'user', 'show', array('user_id' => $user['id'])) ?>
+                    <?= '#'.$user['id'] ?>
                 </td>
                 <td>
-                    <?= $this->a($this->e($user['username']), 'user', 'show', array('user_id' => $user['id'])) ?>
+                    <?= $this->url->link($this->text->e($user['username']), 'user', 'show', array('user_id' => $user['id'])) ?>
                 </td>
                 <td>
-                    <?= $this->e($user['name']) ?>
+                    <?= $this->text->e($user['name']) ?>
                 </td>
                 <td>
-                    <a href="mailto:<?= $this->e($user['email']) ?>"><?= $this->e($user['email']) ?></a>
+                    <a href="mailto:<?= $this->text->e($user['email']) ?>"><?= $this->text->e($user['email']) ?></a>
                 </td>
                 <td>
-                    <?= $user['is_admin'] ? t('Yes') : t('No') ?>
+                    <?= $this->user->getRoleName($user['role']) ?>
                 </td>
                 <td>
-                    <?= (isset($user['default_project_id']) && isset($projects[$user['default_project_id']])) ? $this->e($projects[$user['default_project_id']]) : t('None'); ?>
-                </td>
-                <td>
-                    <?php if ($user['notifications_enabled'] == 1): ?>
-                        <?= t('Enabled') ?>
-                    <?php else: ?>
-                        <?= t('Disabled') ?>
-                    <?php endif ?>
-                </td>
-                <td>
-                    <ul class="no-bullet">
-                    <?php if ($user['google_id']): ?>
-                        <li><i class="fa fa-google fa-fw"></i><?= t('Google account linked') ?></li>
-                    <?php endif ?>
-                    <?php if ($user['github_id']): ?>
-                        <li><i class="fa fa-github fa-fw"></i><?= t('Github account linked') ?></li>
-                    <?php endif ?>
-                    </ul>
+                    <?= $user['twofactor_activated'] ? t('Yes') : t('No') ?>
                 </td>
                 <td>
                     <?= $user['is_ldap_user'] ? t('Remote') : t('Local') ?>
+                </td>
+                <td>
+                    <?php if ($user['is_active'] == 1): ?>
+                        <?= t('Active') ?>
+                    <?php else: ?>
+                        <?= t('Inactive') ?>
+                    <?php endif ?>
+                </td>
+                <td>
+                    <?= $this->render('user/dropdown', array('user' => $user)) ?>
                 </td>
             </tr>
             <?php endforeach ?>
         </table>
 
-        <?= $this->paginate($pagination) ?>
+        <?= $paginator ?>
     <?php endif ?>
-    </section>
 </section>

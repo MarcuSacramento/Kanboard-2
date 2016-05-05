@@ -1,37 +1,45 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
-use Event\FileEvent;
+use Exception;
+use Kanboard\Core\Thumbnail;
+use Kanboard\Event\FileEvent;
+use Kanboard\Core\ObjectStorage\ObjectStorageException;
 
 /**
- * File model
+ * Base File Model
  *
  * @package  model
  * @author   Frederic Guillot
  */
-class File extends Base
+abstract class File extends Base
 {
     /**
-     * SQL table name
+     * Get PicoDb query to get all files
      *
-     * @var string
+     * @access protected
+     * @return \PicoDb\Table
      */
-    const TABLE = 'task_has_files';
-
-    /**
-     * Directory where are stored files
-     *
-     * @var string
-     */
-    const BASE_PATH = 'data/files/';
-
-    /**
-     * Events
-     *
-     * @var string
-     */
-    const EVENT_CREATE = 'file.create';
+    protected function getQuery()
+    {
+        return $this->db
+            ->table(static::TABLE)
+            ->columns(
+                static::TABLE.'.id',
+                static::TABLE.'.name',
+                static::TABLE.'.path',
+                static::TABLE.'.is_image',
+                static::TABLE.'.'.static::FOREIGN_KEY,
+                static::TABLE.'.date',
+                static::TABLE.'.user_id',
+                static::TABLE.'.size',
+                User::TABLE.'.username',
+                User::TABLE.'.name as user_name'
+            )
+            ->join(User::TABLE, 'id', 'user_id')
+            ->asc(static::TABLE.'.name');
+    }
 
     /**
      * Get a file by the id
@@ -42,7 +50,96 @@ class File extends Base
      */
     public function getById($file_id)
     {
-        return $this->db->table(self::TABLE)->eq('id', $file_id)->findOne();
+        return $this->db->table(static::TABLE)->eq('id', $file_id)->findOne();
+    }
+
+    /**
+     * Get all files
+     *
+     * @access public
+     * @param  integer   $id
+     * @return array
+     */
+    public function getAll($id)
+    {
+        return $this->getQuery()->eq(static::FOREIGN_KEY, $id)->findAll();
+    }
+
+    /**
+     * Get all images
+     *
+     * @access public
+     * @param  integer   $id
+     * @return array
+     */
+    public function getAllImages($id)
+    {
+        return $this->getQuery()->eq(static::FOREIGN_KEY, $id)->eq('is_image', 1)->findAll();
+    }
+
+    /**
+     * Get all files without images
+     *
+     * @access public
+     * @param  integer   $id
+     * @return array
+     */
+    public function getAllDocuments($id)
+    {
+        return $this->getQuery()->eq(static::FOREIGN_KEY, $id)->eq('is_image', 0)->findAll();
+    }
+
+    /**
+     * Create a file entry in the database
+     *
+     * @access public
+     * @param  integer  $id         Foreign key
+     * @param  string   $name       Filename
+     * @param  string   $path       Path on the disk
+     * @param  integer  $size       File size
+     * @return bool|integer
+     */
+    public function create($id, $name, $path, $size)
+    {
+        $values = array(
+            static::FOREIGN_KEY => $id,
+            'name' => substr($name, 0, 255),
+            'path' => $path,
+            'is_image' => $this->isImage($name) ? 1 : 0,
+            'size' => $size,
+            'user_id' => $this->userSession->getId() ?: 0,
+            'date' => time(),
+        );
+
+        $result = $this->db->table(static::TABLE)->insert($values);
+
+        if ($result) {
+            $file_id = (int) $this->db->getLastId();
+            $event = new FileEvent($values + array('file_id' => $file_id));
+            $this->dispatcher->dispatch(static::EVENT_CREATE, $event);
+            return $file_id;
+        }
+
+        return false;
+    }
+
+    /**
+     * Remove all files
+     *
+     * @access public
+     * @param  integer   $id
+     * @return bool
+     */
+    public function removeAll($id)
+    {
+        $file_ids = $this->db->table(static::TABLE)->eq(static::FOREIGN_KEY, $id)->asc('id')->findAllByColumn('id');
+        $results = array();
+
+        foreach ($file_ids as $file_id) {
+            $results[] = $this->remove($file_id);
+        }
+
+        return ! in_array(false, $results, true);
     }
 
     /**
@@ -54,73 +151,23 @@ class File extends Base
      */
     public function remove($file_id)
     {
-        $file = $this->getbyId($file_id);
+        try {
+            $file = $this->getById($file_id);
+            $this->objectStorage->remove($file['path']);
 
-        if (! empty($file) && @unlink(self::BASE_PATH.$file['path'])) {
-            return $this->db->table(self::TABLE)->eq('id', $file_id)->remove();
-        }
+            if ($file['is_image'] == 1) {
+                $this->objectStorage->remove($this->getThumbnailPath($file['path']));
+            }
 
-        return false;
-    }
-
-    /**
-     * Remove all files for a given task
-     *
-     * @access public
-     * @param  integer   $task_id    Task id
-     * @return bool
-     */
-    public function removeAll($task_id)
-    {
-        $files = $this->getAll($task_id);
-
-        foreach ($files as $file) {
-            $this->remove($file['id']);
+            return $this->db->table(static::TABLE)->eq('id', $file['id'])->remove();
+        } catch (ObjectStorageException $e) {
+            $this->logger->error($e->getMessage());
+            return false;
         }
     }
 
     /**
-     * Create a file entry in the database
-     *
-     * @access public
-     * @param  integer  $task_id    Task id
-     * @param  string   $name       Filename
-     * @param  string   $path       Path on the disk
-     * @param  bool     $is_image   Image or not
-     * @return bool
-     */
-    public function create($task_id, $name, $path, $is_image)
-    {
-        $this->container['dispatcher']->dispatch(
-            self::EVENT_CREATE,
-            new FileEvent(array('task_id' => $task_id, 'name' => $name))
-        );
-
-        return $this->db->table(self::TABLE)->save(array(
-            'task_id' => $task_id,
-            'name' => $name,
-            'path' => $path,
-            'is_image' => $is_image ? '1' : '0',
-        ));
-    }
-
-    /**
-     * Get all files for a given task
-     *
-     * @access public
-     * @param  integer   $task_id    Task id
-     * @return array
-     */
-    public function getAll($task_id)
-    {
-        return $this->db->table(self::TABLE)
-            ->eq('task_id', $task_id)
-            ->asc('name')
-            ->findAll();
-    }
-
-    /**
-     * Check if a filename is an image
+     * Check if a filename is an image (file types that can be shown as thumbnail)
      *
      * @access public
      * @param  string   $filename   Filename
@@ -128,80 +175,166 @@ class File extends Base
      */
     public function isImage($filename)
     {
-        return getimagesize($filename) !== false;
+        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+        switch ($extension) {
+            case 'jpeg':
+            case 'jpg':
+            case 'png':
+            case 'gif':
+                return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Generate the path for a thumbnails
+     *
+     * @access public
+     * @param  string  $key  Storage key
+     * @return string
+     */
+    public function getThumbnailPath($key)
+    {
+        return 'thumbnails'.DIRECTORY_SEPARATOR.$key;
     }
 
     /**
      * Generate the path for a new filename
      *
      * @access public
-     * @param  integer   $project_id    Project id
-     * @param  integer   $task_id       Task id
+     * @param  integer   $id            Foreign key
      * @param  string    $filename      Filename
      * @return string
      */
-    public function generatePath($project_id, $task_id, $filename)
+    public function generatePath($id, $filename)
     {
-        return $project_id.DIRECTORY_SEPARATOR.$task_id.DIRECTORY_SEPARATOR.hash('sha1', $filename.time());
+        return static::PATH_PREFIX.DIRECTORY_SEPARATOR.$id.DIRECTORY_SEPARATOR.hash('sha1', $filename.time());
     }
 
     /**
-     * Check if the base directory is created correctly
+     * Upload multiple files
      *
      * @access public
-     */
-    public function setup()
-    {
-        if (! is_dir(self::BASE_PATH)) {
-            if (! mkdir(self::BASE_PATH, 0755, true)) {
-                die('Unable to create the upload directory: "'.self::BASE_PATH.'"');
-            }
-        }
-
-        if (! is_writable(self::BASE_PATH)) {
-            die('The directory "'.self::BASE_PATH.'" must be writeable by your webserver user');
-        }
-    }
-
-    /**
-     * Handle file upload
-     *
-     * @access public
-     * @param  integer $project_id Project id
-     * @param  integer $task_id Task id
-     * @param  string $form_name File form name
+     * @param  integer  $id
+     * @param  array    $files
      * @return bool
      */
-    public function upload($project_id, $task_id, $form_name)
+    public function uploadFiles($id, array $files)
     {
-        $this->setup();
-        $result = array();
-
-        if (! empty($_FILES[$form_name])) {
-
-            foreach ($_FILES[$form_name]['error'] as $key => $error) {
-
-                if ($error == UPLOAD_ERR_OK && $_FILES[$form_name]['size'][$key] > 0) {
-
-                    $original_filename = basename($_FILES[$form_name]['name'][$key]);
-                    $uploaded_filename = $_FILES[$form_name]['tmp_name'][$key];
-                    $destination_filename = $this->generatePath($project_id, $task_id, $original_filename);
-
-                    @mkdir(self::BASE_PATH.dirname($destination_filename), 0755, true);
-
-                    if (@move_uploaded_file($uploaded_filename, self::BASE_PATH.$destination_filename)) {
-
-                        $result[] = $this->create(
-                            $task_id,
-                            $original_filename,
-                            $destination_filename,
-                            $this->isImage(self::BASE_PATH.$destination_filename)
-                        );
-                    }
-                }
+        try {
+            if (empty($files)) {
+                return false;
             }
-        }
 
-        return count(array_unique($result)) === 1;
+            foreach (array_keys($files['error']) as $key) {
+                $file = array(
+                    'name' => $files['name'][$key],
+                    'tmp_name' => $files['tmp_name'][$key],
+                    'size' => $files['size'][$key],
+                    'error' => $files['error'][$key],
+                );
+
+                $this->uploadFile($id, $file);
+            }
+
+            return true;
+        } catch (Exception $e) {
+            $this->logger->error($e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Upload a file
+     *
+     * @access public
+     * @param  integer $id
+     * @param  array   $file
+     */
+    public function uploadFile($id, array $file)
+    {
+        if ($file['error'] == UPLOAD_ERR_OK && $file['size'] > 0) {
+            $destination_filename = $this->generatePath($id, $file['name']);
+
+            if ($this->isImage($file['name'])) {
+                $this->generateThumbnailFromFile($file['tmp_name'], $destination_filename);
+            }
+
+            $this->objectStorage->moveUploadedFile($file['tmp_name'], $destination_filename);
+            $this->create($id, $file['name'], $destination_filename, $file['size']);
+        } else {
+            throw new Exception('File not uploaded: '.var_export($file['error'], true));
+        }
+    }
+
+    /**
+     * Handle file upload (base64 encoded content)
+     *
+     * @access public
+     * @param  integer  $id
+     * @param  string   $original_filename
+     * @param  string   $blob
+     * @return bool|integer
+     */
+    public function uploadContent($id, $original_filename, $blob)
+    {
+        try {
+            $data = base64_decode($blob);
+
+            if (empty($data)) {
+                return false;
+            }
+
+            $destination_filename = $this->generatePath($id, $original_filename);
+            $this->objectStorage->put($destination_filename, $data);
+
+            if ($this->isImage($original_filename)) {
+                $this->generateThumbnailFromData($destination_filename, $data);
+            }
+
+            return $this->create(
+                $id,
+                $original_filename,
+                $destination_filename,
+                strlen($data)
+            );
+        } catch (ObjectStorageException $e) {
+            $this->logger->error($e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Generate thumbnail from a blob
+     *
+     * @access public
+     * @param  string   $destination_filename
+     * @param  string   $data
+     */
+    public function generateThumbnailFromData($destination_filename, &$data)
+    {
+        $blob = Thumbnail::createFromString($data)
+            ->resize()
+            ->toString();
+
+        $this->objectStorage->put($this->getThumbnailPath($destination_filename), $blob);
+    }
+
+    /**
+     * Generate thumbnail from a local file
+     *
+     * @access public
+     * @param  string   $uploaded_filename
+     * @param  string   $destination_filename
+     */
+    public function generateThumbnailFromFile($uploaded_filename, $destination_filename)
+    {
+        $blob = Thumbnail::createFromFile($uploaded_filename)
+            ->resize()
+            ->toString();
+
+        $this->objectStorage->put($this->getThumbnailPath($destination_filename), $blob);
     }
 }

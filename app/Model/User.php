@@ -1,10 +1,10 @@
 <?php
 
-namespace Model;
+namespace Kanboard\Model;
 
-use SimpleValidator\Validator;
-use SimpleValidator\Validators;
-use Core\Session;
+use PicoDb\Database;
+use Kanboard\Core\Security\Token;
+use Kanboard\Core\Security\Role;
 
 /**
  * User model
@@ -27,6 +27,41 @@ class User extends Base
      * @var integer
      */
     const EVERYBODY_ID = -1;
+
+    /**
+     * Return true if the user exists
+     *
+     * @access public
+     * @param  integer    $user_id   User id
+     * @return boolean
+     */
+    public function exists($user_id)
+    {
+        return $this->db->table(self::TABLE)->eq('id', $user_id)->exists();
+    }
+
+    /**
+     * Return true if the user is active
+     *
+     * @access public
+     * @param  integer    $user_id   User id
+     * @return boolean
+     */
+    public function isActive($user_id)
+    {
+        return $this->db->table(self::TABLE)->eq('id', $user_id)->eq('is_active', 1)->exists();
+    }
+
+    /**
+     * Get query to fetch all users
+     *
+     * @access public
+     * @return \PicoDb\Table
+     */
+    public function getQuery()
+    {
+        return $this->db->table(self::TABLE);
+    }
 
     /**
      * Return the full name
@@ -52,8 +87,8 @@ class User extends Base
                $this->db
                     ->table(User::TABLE)
                     ->eq('id', $user_id)
-                    ->eq('is_admin', 1)
-                    ->count() === 1;
+                    ->eq('role', Role::APP_ADMIN)
+                    ->exists();
     }
 
     /**
@@ -72,24 +107,17 @@ class User extends Base
      * Get a specific user by the Google id
      *
      * @access public
-     * @param  string  $google_id  Google unique id
-     * @return array
+     * @param  string  $column
+     * @param  string  $id
+     * @return array|boolean
      */
-    public function getByGoogleId($google_id)
+    public function getByExternalId($column, $id)
     {
-        return $this->db->table(self::TABLE)->eq('google_id', $google_id)->findOne();
-    }
+        if (empty($id)) {
+            return false;
+        }
 
-    /**
-     * Get a specific user by the GitHub id
-     *
-     * @access public
-     * @param  string  $github_id  GitHub user id
-     * @return array
-     */
-    public function getByGitHubId($github_id)
-    {
-        return $this->db->table(self::TABLE)->eq('github_id', $github_id)->findOne();
+        return $this->db->table(self::TABLE)->eq($column, $id)->findOne();
     }
 
     /**
@@ -105,6 +133,50 @@ class User extends Base
     }
 
     /**
+     * Get user_id by username
+     *
+     * @access public
+     * @param  string  $username  Username
+     * @return integer
+     */
+    public function getIdByUsername($username)
+    {
+        return $this->db->table(self::TABLE)->eq('username', $username)->findOneColumn('id');
+    }
+
+    /**
+     * Get a specific user by the email address
+     *
+     * @access public
+     * @param  string  $email  Email
+     * @return array|boolean
+     */
+    public function getByEmail($email)
+    {
+        if (empty($email)) {
+            return false;
+        }
+
+        return $this->db->table(self::TABLE)->eq('email', $email)->findOne();
+    }
+
+    /**
+     * Fetch user by using the token
+     *
+     * @access public
+     * @param  string   $token    Token
+     * @return array|boolean
+     */
+    public function getByToken($token)
+    {
+        if (empty($token)) {
+            return false;
+        }
+
+        return $this->db->table(self::TABLE)->eq('token', $token)->findOne();
+    }
+
+    /**
      * Get all users
      *
      * @access public
@@ -112,54 +184,7 @@ class User extends Base
      */
     public function getAll()
     {
-        return $this->db
-                    ->table(self::TABLE)
-                    ->asc('username')
-                    ->columns(
-                        'id',
-                        'username',
-                        'name',
-                        'email',
-                        'is_admin',
-                        'default_project_id',
-                        'is_ldap_user',
-                        'notifications_enabled',
-                        'google_id',
-                        'github_id'
-                    )
-                    ->findAll();
-    }
-
-    /**
-     * Get all users with pagination
-     *
-     * @access public
-     * @param  integer    $offset        Offset
-     * @param  integer    $limit         Limit
-     * @param  string     $column        Sorting column
-     * @param  string     $direction     Sorting direction
-     * @return array
-     */
-    public function paginate($offset = 0, $limit = 25, $column = 'username', $direction = 'ASC')
-    {
-        return $this->db
-                    ->table(self::TABLE)
-                    ->columns(
-                        'id',
-                        'username',
-                        'name',
-                        'email',
-                        'is_admin',
-                        'default_project_id',
-                        'is_ldap_user',
-                        'notifications_enabled',
-                        'google_id',
-                        'github_id'
-                    )
-                    ->offset($offset)
-                    ->limit($limit)
-                    ->orderBy($column, $direction)
-                    ->findAll();
+        return $this->getQuery()->asc('username')->findAll();
     }
 
     /**
@@ -177,12 +202,19 @@ class User extends Base
      * List all users (key-value pairs with id/username)
      *
      * @access public
+     * @param  boolean  $prepend  Prepend "All users"
      * @return array
      */
-    public function getList()
+    public function getActiveUsersList($prepend = false)
     {
-        $users = $this->db->table(self::TABLE)->columns('id', 'username', 'name')->findAll();
-        return $this->prepareList($users);
+        $users = $this->db->table(self::TABLE)->eq('is_active', 1)->columns('id', 'username', 'name')->findAll();
+        $listing = $this->prepareList($users);
+
+        if ($prepend) {
+            return array(User::EVERYBODY_ID => t('Everybody')) + $listing;
+        }
+
+        return $listing;
     }
 
     /**
@@ -197,7 +229,7 @@ class User extends Base
         $result = array();
 
         foreach ($users as $user) {
-            $result[$user['id']] = $user['name'] ?: $user['username'];
+            $result[$user['id']] = $this->getFullname($user);
         }
 
         asort($result);
@@ -214,17 +246,17 @@ class User extends Base
     public function prepare(array &$values)
     {
         if (isset($values['password'])) {
-
             if (! empty($values['password'])) {
                 $values['password'] = \password_hash($values['password'], PASSWORD_BCRYPT);
-            }
-            else {
+            } else {
                 unset($values['password']);
             }
         }
 
-        $this->removeFields($values, array('confirmation', 'current_password'));
-        $this->resetFields($values, array('is_admin', 'is_ldap_user'));
+        $this->helper->model->removeFields($values, array('confirmation', 'current_password'));
+        $this->helper->model->resetFields($values, array('is_ldap_user', 'disable_login_form'));
+        $this->helper->model->convertNullFields($values, array('gitlab_id'));
+        $this->helper->model->convertIntegerFields($values, array('gitlab_id'));
     }
 
     /**
@@ -245,19 +277,38 @@ class User extends Base
      *
      * @access public
      * @param  array  $values  Form values
-     * @return array
+     * @return boolean
      */
     public function update(array $values)
     {
         $this->prepare($values);
         $result = $this->db->table(self::TABLE)->eq('id', $values['id'])->update($values);
-
-        // If the user is connected refresh his session
-        if (Session::isOpen() && $this->userSession->getId() == $values['id']) {
-            $this->userSession->refresh();
-        }
-
+        $this->userSession->refresh($values['id']);
         return $result;
+    }
+
+    /**
+     * Disable a specific user
+     *
+     * @access public
+     * @param  integer  $user_id
+     * @return boolean
+     */
+    public function disable($user_id)
+    {
+        return $this->db->table(self::TABLE)->eq('id', $user_id)->update(array('is_active' => 0));
+    }
+
+    /**
+     * Enable a specific user
+     *
+     * @access public
+     * @param  integer  $user_id
+     * @return boolean
+     */
+    public function enable($user_id)
+    {
+        return $this->db->table(self::TABLE)->eq('id', $user_id)->update(array('is_active' => 1));
     }
 
     /**
@@ -269,19 +320,31 @@ class User extends Base
      */
     public function remove($user_id)
     {
-        return $this->db->transaction(function ($db) use ($user_id) {
+        $this->avatarFile->remove($user_id);
 
-            // All assigned tasks are now unassigned
+        return $this->db->transaction(function (Database $db) use ($user_id) {
+
+            // All assigned tasks are now unassigned (no foreign key)
             if (! $db->table(Task::TABLE)->eq('owner_id', $user_id)->update(array('owner_id' => 0))) {
+                return false;
+            }
+
+            // All assigned subtasks are now unassigned (no foreign key)
+            if (! $db->table(Subtask::TABLE)->eq('user_id', $user_id)->update(array('user_id' => 0))) {
+                return false;
+            }
+
+            // All comments are not assigned anymore (no foreign key)
+            if (! $db->table(Comment::TABLE)->eq('user_id', $user_id)->update(array('user_id' => 0))) {
                 return false;
             }
 
             // All private projects are removed
             $project_ids = $db->table(Project::TABLE)
-                           ->eq('is_private', 1)
-                           ->eq(ProjectPermission::TABLE.'.user_id', $user_id)
-                           ->join(ProjectPermission::TABLE, 'project_id', 'id')
-                           ->findAllByColumn(Project::TABLE.'.id');
+                ->eq('is_private', 1)
+                ->eq(ProjectUserRole::TABLE.'.user_id', $user_id)
+                ->join(ProjectUserRole::TABLE, 'project_id', 'id')
+                ->findAllByColumn(Project::TABLE.'.id');
 
             if (! empty($project_ids)) {
                 $db->table(Project::TABLE)->in('id', $project_ids)->remove();
@@ -295,129 +358,32 @@ class User extends Base
     }
 
     /**
-     * Common validation rules
-     *
-     * @access private
-     * @return array
-     */
-    private function commonValidationRules()
-    {
-        return array(
-            new Validators\MaxLength('username', t('The maximum length is %d characters', 50), 50),
-            new Validators\Unique('username', t('The username must be unique'), $this->db->getConnection(), self::TABLE, 'id'),
-            new Validators\Email('email', t('Email address invalid')),
-            new Validators\Integer('default_project_id', t('This value must be an integer')),
-            new Validators\Integer('is_admin', t('This value must be an integer')),
-        );
-    }
-
-    /**
-     * Common password validation rules
-     *
-     * @access private
-     * @return array
-     */
-    private function commonPasswordValidationRules()
-    {
-        return array(
-            new Validators\Required('password', t('The password is required')),
-            new Validators\MinLength('password', t('The minimum length is %d characters', 6), 6),
-            new Validators\Required('confirmation', t('The confirmation is required')),
-            new Validators\Equals('password', 'confirmation', t('Passwords don\'t match')),
-        );
-    }
-
-    /**
-     * Validate user creation
+     * Enable public access for a user
      *
      * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
+     * @param  integer   $user_id   User id
+     * @return bool
      */
-    public function validateCreation(array $values)
+    public function enablePublicAccess($user_id)
     {
-        $rules = array(
-            new Validators\Required('username', t('The username is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules(), $this->commonPasswordValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
+        return $this->db
+                    ->table(self::TABLE)
+                    ->eq('id', $user_id)
+                    ->save(array('token' => Token::getToken()));
     }
 
     /**
-     * Validate user modification
+     * Disable public access for a user
      *
      * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
+     * @param  integer   $user_id    User id
+     * @return bool
      */
-    public function validateModification(array $values)
+    public function disablePublicAccess($user_id)
     {
-        $rules = array(
-            new Validators\Required('id', t('The user id is required')),
-            new Validators\Required('username', t('The username is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Validate user API modification
-     *
-     * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validateApiModification(array $values)
-    {
-        $rules = array(
-            new Validators\Required('id', t('The user id is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonValidationRules()));
-
-        return array(
-            $v->execute(),
-            $v->getErrors()
-        );
-    }
-
-    /**
-     * Validate password modification
-     *
-     * @access public
-     * @param  array   $values           Form values
-     * @return array   $valid, $errors   [0] = Success or not, [1] = List of errors
-     */
-    public function validatePasswordModification(array $values)
-    {
-        $rules = array(
-            new Validators\Required('id', t('The user id is required')),
-            new Validators\Required('current_password', t('The current password is required')),
-        );
-
-        $v = new Validator($values, array_merge($rules, $this->commonPasswordValidationRules()));
-
-        if ($v->execute()) {
-
-            // Check password
-            if ($this->authentication->authenticate($this->session['user']['username'], $values['current_password'])) {
-                return array(true, array());
-            }
-            else {
-                return array(false, array('current_password' => array(t('Wrong password'))));
-            }
-        }
-
-        return array(false, $v->getErrors());
+        return $this->db
+                    ->table(self::TABLE)
+                    ->eq('id', $user_id)
+                    ->save(array('token' => ''));
     }
 }

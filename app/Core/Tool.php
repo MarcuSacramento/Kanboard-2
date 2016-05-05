@@ -1,6 +1,8 @@
 <?php
 
-namespace Core;
+namespace Kanboard\Core;
+
+use Pimple\Container;
 
 /**
  * Tool class
@@ -11,24 +13,66 @@ namespace Core;
 class Tool
 {
     /**
-     * Write a CSV file
+     * Get the mailbox hash from an email address
      *
      * @static
      * @access public
-     * @param  array    $rows       Array of rows
-     * @param  string   $filename   Output filename
+     * @param  string  $email
+     * @return string
      */
-    public static function csv(array $rows, $filename = 'php://output')
+    public static function getMailboxHash($email)
     {
-        $fp = fopen($filename, 'w');
-
-        if (is_resource($fp)) {
-
-            foreach ($rows as $fields) {
-                fputcsv($fp, $fields);
-            }
-
-            fclose($fp);
+        if (! strpos($email, '@') || ! strpos($email, '+')) {
+            return '';
         }
+
+        list($local_part, ) = explode('@', $email);
+        list(, $identifier) = explode('+', $local_part);
+
+        return $identifier;
+    }
+
+    /**
+     * Build dependency injection container from an array
+     *
+     * @static
+     * @access public
+     * @param  Container  $container
+     * @param  array      $namespaces
+     * @return Container
+     */
+    public static function buildDIC(Container $container, array $namespaces)
+    {
+        foreach ($namespaces as $namespace => $classes) {
+            foreach ($classes as $name) {
+                $class = '\\Kanboard\\'.$namespace.'\\'.$name;
+                $container[lcfirst($name)] = function ($c) use ($class) {
+                    return new $class($c);
+                };
+            }
+        }
+
+        return $container;
+    }
+
+    /**
+     * Build dependency injection container for custom helpers from an array
+     *
+     * @static
+     * @access public
+     * @param  Container  $container
+     * @param  array      $namespaces
+     * @return Container
+     */
+    public static function buildDICHelpers(Container $container, array $namespaces)
+    {
+        foreach ($namespaces as $namespace => $classes) {
+            foreach ($classes as $name) {
+                $class = '\\Kanboard\\'.$namespace.'\\'.$name;
+                $container['helper']->register($name, $class);
+            }
+        }
+
+        return $container;
     }
 }

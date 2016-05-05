@@ -1,32 +1,15 @@
 <?php
 
-namespace Controller;
+namespace Kanboard\Controller;
 
 /**
- * SubTask controller
+ * Subtask controller
  *
  * @package  controller
  * @author   Frederic Guillot
  */
 class Subtask extends Base
 {
-    /**
-     * Get the current subtask
-     *
-     * @access private
-     * @return array
-     */
-    private function getSubtask()
-    {
-        $subtask = $this->subTask->getById($this->request->getIntegerParam('subtask_id'));
-
-        if (! $subtask) {
-            $this->notfound();
-        }
-
-        return $subtask;
-    }
-
     /**
      * Creation form
      *
@@ -43,10 +26,10 @@ class Subtask extends Base
             );
         }
 
-        $this->response->html($this->taskLayout('subtask/create', array(
+        $this->response->html($this->template->render('subtask/create', array(
             'values' => $values,
             'errors' => $errors,
-            'users_list' => $this->projectPermission->getMemberList($task['project_id']),
+            'users_list' => $this->projectUserRole->getAssignableUsersList($task['project_id']),
             'task' => $task,
         )));
     }
@@ -61,22 +44,20 @@ class Subtask extends Base
         $task = $this->getTask();
         $values = $this->request->getValues();
 
-        list($valid, $errors) = $this->subTask->validateCreation($values);
+        list($valid, $errors) = $this->subtaskValidator->validateCreation($values);
 
         if ($valid) {
-
-            if ($this->subTask->create($values)) {
-                $this->session->flash(t('Sub-task added successfully.'));
-            }
-            else {
-                $this->session->flashError(t('Unable to create your sub-task.'));
+            if ($this->subtask->create($values)) {
+                $this->flash->success(t('Sub-task added successfully.'));
+            } else {
+                $this->flash->failure(t('Unable to create your sub-task.'));
             }
 
             if (isset($values['another_subtask']) && $values['another_subtask'] == 1) {
-                $this->response->redirect('?controller=subtask&action=create&task_id='.$task['id'].'&another_subtask=1&project_id='.$task['project_id']);
+                return $this->create(array('project_id' => $task['project_id'], 'task_id' => $task['id'], 'another_subtask' => 1));
             }
 
-            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#subtasks');
+            return $this->response->redirect($this->helper->url->to('task', 'show', array('project_id' => $task['project_id'], 'task_id' => $task['id']), 'subtasks'), true);
         }
 
         $this->create($values, $errors);
@@ -92,11 +73,11 @@ class Subtask extends Base
         $task = $this->getTask();
         $subtask = $this->getSubTask();
 
-        $this->response->html($this->taskLayout('subtask/edit', array(
+        $this->response->html($this->template->render('subtask/edit', array(
             'values' => empty($values) ? $subtask : $values,
             'errors' => $errors,
-            'users_list' => $this->projectPermission->getMemberList($task['project_id']),
-            'status_list' => $this->subTask->getStatusList(),
+            'users_list' => $this->projectUserRole->getAssignableUsersList($task['project_id']),
+            'status_list' => $this->subtask->getStatusList(),
             'subtask' => $subtask,
             'task' => $task,
         )));
@@ -113,18 +94,16 @@ class Subtask extends Base
         $this->getSubtask();
 
         $values = $this->request->getValues();
-        list($valid, $errors) = $this->subTask->validateModification($values);
+        list($valid, $errors) = $this->subtaskValidator->validateModification($values);
 
         if ($valid) {
-
-            if ($this->subTask->update($values)) {
-                $this->session->flash(t('Sub-task updated successfully.'));
-            }
-            else {
-                $this->session->flashError(t('Unable to update your sub-task.'));
+            if ($this->subtask->update($values)) {
+                $this->flash->success(t('Sub-task updated successfully.'));
+            } else {
+                $this->flash->failure(t('Unable to update your sub-task.'));
             }
 
-            $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#subtasks');
+            return $this->response->redirect($this->helper->url->to('task', 'show', array('project_id' => $task['project_id'], 'task_id' => $task['id'])), true);
         }
 
         $this->edit($values, $errors);
@@ -140,7 +119,7 @@ class Subtask extends Base
         $task = $this->getTask();
         $subtask = $this->getSubtask();
 
-        $this->response->html($this->taskLayout('subtask/remove', array(
+        $this->response->html($this->template->render('subtask/remove', array(
             'subtask' => $subtask,
             'task' => $task,
         )));
@@ -157,30 +136,31 @@ class Subtask extends Base
         $task = $this->getTask();
         $subtask = $this->getSubtask();
 
-        if ($this->subTask->remove($subtask['id'])) {
-            $this->session->flash(t('Sub-task removed successfully.'));
-        }
-        else {
-            $this->session->flashError(t('Unable to remove this sub-task.'));
+        if ($this->subtask->remove($subtask['id'])) {
+            $this->flash->success(t('Sub-task removed successfully.'));
+        } else {
+            $this->flash->failure(t('Unable to remove this sub-task.'));
         }
 
-        $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#subtasks');
+        $this->response->redirect($this->helper->url->to('task', 'show', array('project_id' => $task['project_id'], 'task_id' => $task['id'])), true);
     }
 
     /**
-     * Change status to the next status: Toto -> In Progress -> Done
+     * Move subtask position
      *
      * @access public
      */
-    public function toggleStatus()
+    public function movePosition()
     {
-        $task = $this->getTask();
-        $subtask_id = $this->request->getIntegerParam('subtask_id');
+        $project_id = $this->request->getIntegerParam('project_id');
+        $task_id = $this->request->getIntegerParam('task_id');
+        $values = $this->request->getJson();
 
-        if (! $this->subTask->toggleStatus($subtask_id)) {
-            $this->session->flashError(t('Unable to update your sub-task.'));
+        if (! empty($values) && $this->helper->user->hasProjectAccess('Subtask', 'movePosition', $project_id)) {
+            $result = $this->subtask->changePosition($task_id, $values['subtask_id'], $values['position']);
+            return $this->response->json(array('result' => $result));
         }
 
-        $this->response->redirect('?controller=task&action=show&task_id='.$task['id'].'&project_id='.$task['project_id'].'#subtasks');
+        $this->forbidden();
     }
 }
